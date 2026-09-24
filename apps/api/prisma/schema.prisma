@@ -1,0 +1,222 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ── Enums ─────────────────────────────────────────────────────────────────────
+
+enum Role {
+  SUPER_ADMIN
+  STORE_ADMIN
+  STAFF
+}
+
+// ── Store ─────────────────────────────────────────────────────────────────────
+
+model Store {
+  id        String   @id @default(cuid())
+  name      String
+  code      String   @unique
+  city      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users        User[]
+  loads        Load[]
+  catalog      CatalogItem[]
+  audits       Audit[]
+  stockReturns StockReturn[]
+  members      Member[]
+  eossItems    EossItem[]
+}
+
+// ── Users / Auth ──────────────────────────────────────────────────────────────
+
+model User {
+  id        String   @id @default(cuid())
+  phone     String   @unique
+  password  String
+  name      String
+  role      Role     @default(STAFF)
+  storeId   String
+  store     Store    @relation(fields: [storeId], references: [id])
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ── Loads (Inward Shipments) ──────────────────────────────────────────────────
+
+model Load {
+  id          String    @id          // from CSV 'load' column e.g. L06BW2627029333
+  storeId     String
+  store       Store     @relation(fields: [storeId], references: [id])
+  warehouseId String
+  courier     String
+  docket      String
+  boxes       Int
+  totalMrp    Decimal   @db.Decimal(12, 2)
+  totalCtc    Decimal   @db.Decimal(12, 2)
+  comment     String?
+  importedBy  String
+  importedAt  DateTime  @default(now())
+  closedAt    DateTime?
+  products    LoadProduct[]
+
+  @@index([storeId])
+}
+
+model LoadProduct {
+  id          String  @id @default(cuid())
+  loadId      String
+  load        Load    @relation(fields: [loadId], references: [id], onDelete: Cascade)
+  productId   String
+  productName String
+  brandId     String?
+  mrp         Decimal @db.Decimal(10, 2)
+  ctc         Decimal @db.Decimal(10, 2)
+  discount    Decimal @default(0) @db.Decimal(6, 2)
+  quantity    Int
+  barcode     String?
+  stockType   String?
+  poId        String?
+  cgst        Decimal @default(0) @db.Decimal(6, 2)
+  sgst        Decimal @default(0) @db.Decimal(6, 2)
+  igst        Decimal @default(0) @db.Decimal(6, 2)
+  hsnCode     String?
+  age         Int?
+  gender      String?
+  color       String?
+  productType String?
+  boxId       String?
+
+  @@index([loadId])
+  @@index([productId])
+}
+
+// ── Catalog ───────────────────────────────────────────────────────────────────
+
+model CatalogItem {
+  id          String   @id @default(cuid())
+  storeId     String
+  store       Store    @relation(fields: [storeId], references: [id])
+  productId   String
+  productName String
+  mrp         Decimal  @db.Decimal(10, 2)
+  ctc         Decimal  @db.Decimal(10, 2)
+  brand       String?
+  category    String
+  subcategory String
+  age         Int?
+  gender      String?
+  quantity    Int      @default(0)
+  updatedAt   DateTime @updatedAt
+
+  @@unique([storeId, productId])
+  @@index([storeId, category, subcategory])
+}
+
+// ── Audit ─────────────────────────────────────────────────────────────────────
+
+model Audit {
+  id          String    @id @default(cuid())
+  storeId     String
+  store       Store     @relation(fields: [storeId], references: [id])
+  category    String
+  subcategory String
+  startedAt   DateTime  @default(now())
+  endedAt     DateTime?
+  initiatedBy String
+  items       AuditItem[]
+
+  @@index([storeId])
+}
+
+model AuditItem {
+  id          String    @id @default(cuid())
+  auditId     String
+  audit       Audit     @relation(fields: [auditId], references: [id], onDelete: Cascade)
+  productId   String
+  productName String
+  availQty    Int
+  matchedQty  Int       @default(0)
+  mrp         Decimal   @db.Decimal(10, 2)
+  ctc         Decimal   @db.Decimal(10, 2)
+  matchedBy   String?
+  matchedAt   DateTime?
+}
+
+// ── Stock Return ──────────────────────────────────────────────────────────────
+
+model StockReturn {
+  id              String    @id @default(cuid())
+  storeId         String
+  store           Store     @relation(fields: [storeId], references: [id])
+  refNo           String    @unique
+  process         String
+  srType          String
+  condition       String
+  warehouse       String
+  ledger          String
+  ctc             Decimal   @db.Decimal(12, 2)
+  gst             Decimal   @default(0) @db.Decimal(6, 2)
+  igst            Decimal   @default(0) @db.Decimal(6, 2)
+  cgst            Decimal   @default(0) @db.Decimal(6, 2)
+  totalBoxes      Int
+  srDate          DateTime
+  comment         String?
+  transporter     String?
+  docketNo        String?
+  handoverBoxes   Int?
+  handoverComment String?
+  handoverDate    DateTime?
+  cnAmount        Decimal   @default(0) @db.Decimal(12, 2)
+  closed          Boolean   @default(false)
+  cn120           Decimal   @default(0) @db.Decimal(12, 2)
+  cn180           Decimal   @default(0) @db.Decimal(12, 2)
+  cnComment       String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([storeId])
+}
+
+// ── EOSS ─────────────────────────────────────────────────────────────────────
+
+model EossItem {
+  id          String @id @default(cuid())
+  storeId     String
+  store       Store  @relation(fields: [storeId], references: [id])
+  productId   String
+  productName String
+  mrp         Decimal @db.Decimal(10, 2)
+  ctc         Decimal @db.Decimal(10, 2)
+  offerPct    Int
+  status      String  @default("pending") // pending | matched | notfound
+  updatedBy   String?
+  updatedAt   DateTime @updatedAt
+
+  @@unique([storeId, productId])
+  @@index([storeId])
+}
+
+// ── Member (M. Card) ──────────────────────────────────────────────────────────
+
+model Member {
+  id        String   @id @default(cuid())
+  storeId   String
+  store     Store    @relation(fields: [storeId], references: [id])
+  name      String
+  phone     String
+  tier      String   @default("Bronze")
+  points    Int      @default(0)
+  spent     Decimal  @default(0) @db.Decimal(12, 2)
+  joinedAt  DateTime @default(now())
+
+  @@unique([storeId, phone])
+  @@index([storeId])
+}
