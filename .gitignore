@@ -6,3 +6,6 @@ dist/
 .DS_Store
 .turbo/
 apps/api/prisma/migrations/
+fcsms.db
+fcsms.db-shm
+fcsms.db-wal
