@@ -1,5 +1,6 @@
 [phases.setup]
-nixPkgs = ["nodejs_22", "python3", "pkg-config", "libtool", "autoconf", "automake", "openssl"]
+nixPkgs = ["nodejs_22"]
+aptPkgs = ["python3", "make", "g++", "pkg-config"]
 
 [phases.build]
 cmds = ["npm install --include=dev && npm run build"]
