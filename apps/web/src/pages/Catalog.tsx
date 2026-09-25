@@ -2,6 +2,7 @@ import React, { useRef, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useFetch } from '../hooks/useFetch';
 import { api } from '../lib/api';
+import ProductImage from '../components/ProductImage';
 
 interface InvReport { id: string; importedAt: string; importedBy: string; totalQty: number; rowCount: number; }
 interface CatalogCategoryRow { category: string; totalQty: number; totalMrp: number; totalCtc: number; productCount: number; subCount: number; brands: string; subcategoryList: string; }
@@ -35,12 +36,6 @@ function truncateBrands(s: string, maxLen = 100): string {
   return truncateList(s, maxLen);
 }
 
-// Correct FirstCry CDN URL: 219x265 thumb / 438x531 full, suffix a.webp
-function productImageUrl(productId: string, full = false) {
-  const size = full ? '438x531' : '219x265';
-  return `https://cdn.fcglcdn.com/brainbees/images/products/${size}/${productId}a.webp`;
-}
-
 export default function Catalog() {
   const navigate = useNavigate();
   const [view, setView] = useState<View>('categories');
@@ -52,6 +47,10 @@ export default function Catalog() {
   const fileRef = useRef<HTMLInputElement>(null);
   const [tick, setTick] = useState(0);
   const bump = useCallback(() => setTick(t => t + 1), []);
+  const [searchId, setSearchId] = useState('');
+  const [searching, setSearching] = useState(false);
+  const [searchMsg, setSearchMsg] = useState<string | null>(null);
+  const [highlightProductId, setHighlightProductId] = useState<string | null>(null);
 
   const { data: latestReport } = useFetch<InvReport | null>('/catalog/inventory/latest', { _tick: tick });
   const { data: activeAudits, refetch: refetchAudits } = useFetch<Array<{ id: string; category: string; subcategory: string; startedAt: string }>>('/audits/active-list', { _tick: tick });
@@ -76,6 +75,31 @@ export default function Catalog() {
   function goSubcategory(sub: string) { setSelSubcategory(sub); setView('articles'); }
   function navHome() { setView('categories'); setSelCategory(''); setSelSubcategory(''); }
   function navCategory() { setView('subcategories'); setSelSubcategory(''); }
+
+  async function handleSearch(e: React.FormEvent) {
+    e.preventDefault();
+    const q = searchId.trim();
+    if (!q) return;
+    setSearching(true); setSearchMsg(null);
+    try {
+      const res = await api.get(`/catalog/search?q=${encodeURIComponent(q)}`);
+      const items: Array<ArticleProduct & { category: string; subcategory: string }> = res.data.data ?? [];
+      if (items.length === 0) {
+        setSearchMsg(`No product found for "${q}"`);
+        return;
+      }
+      const hit = items[0];
+      setHighlightProductId(hit.productId);
+      setSelCategory(hit.category ?? '');
+      setSelSubcategory(hit.subcategory ?? '');
+      setView('articles');
+      setSearchMsg(null);
+    } catch {
+      setSearchMsg('Search failed. Try again.');
+    } finally {
+      setSearching(false);
+    }
+  }
 
   async function handleImport(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -162,7 +186,20 @@ export default function Catalog() {
             </div>
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          {/* Product ID search bar */}
+          <form onSubmit={handleSearch} style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+            <input
+              type="text"
+              value={searchId}
+              onChange={e => { setSearchId(e.target.value); setSearchMsg(null); }}
+              placeholder="Search by Product ID…"
+              style={{ padding: '5px 10px', fontSize: 12, borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg1)', color: 'var(--text1)', width: 170, outline: 'none' }}
+            />
+            <button className="btn btn-ghost btn-sm" type="submit" disabled={searching || !searchId.trim()}>
+              {searching ? '⟳' : '🔍'}
+            </button>
+          </form>
           <button className="btn btn-ghost btn-sm" disabled={syncing} onClick={syncFromLoads}>
             {syncing ? '⟳ Syncing…' : '⟳ Sync from Loads'}
           </button>
@@ -183,6 +220,14 @@ export default function Catalog() {
               {msg.preview.join('\n')}
             </pre>
           )}
+        </div>
+      )}
+
+      {/* Search not-found message */}
+      {searchMsg && (
+        <div style={{ marginBottom: 10, padding: '8px 14px', borderRadius: 6, fontSize: 13, fontWeight: 500, background: 'rgba(239,68,68,0.1)', color: 'var(--red)', border: '1px solid rgba(239,68,68,0.25)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          {searchMsg}
+          <button onClick={() => setSearchMsg(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', fontSize: 14 }}>✕</button>
         </div>
       )}
 
@@ -360,25 +405,12 @@ export default function Catalog() {
                   <tbody>
                     {artProducts.map((p) => {
                       const fcId = p.fcId || p.productId;
+                      const isHighlighted = highlightProductId && p.productId === highlightProductId;
                       return (
-                        <tr key={p.id}>
+                        <tr key={p.id} style={isHighlighted ? { background: 'rgba(251,191,36,0.18)', outline: '2px solid #f59e0b' } : undefined} ref={isHighlighted ? (el => el?.scrollIntoView({ behavior: 'smooth', block: 'center' })) : undefined}>
                           {/* Product image */}
                           <td style={{ padding: '8px 10px' }}>
-                            <a
-                              href={productImageUrl(p.productId, true)}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              title="View full image"
-                              style={{ display: 'block', lineHeight: 0 }}
-                            >
-                              <img
-                                src={productImageUrl(p.productId)}
-                                alt=""
-                                referrerPolicy="no-referrer"
-                                style={{ width: 60, height: 60, objectFit: 'contain', display: 'block', borderRadius: 4, background: '#f5f5f5', cursor: 'pointer' }}
-                                onError={(e) => { (e.target as HTMLImageElement).parentElement!.style.display = 'none'; }}
-                              />
-                            </a>
+                            <ProductImage productId={p.productId} size={56} />
                           </td>
                           {/* FC Id */}
                           <td style={{ fontSize: 12, color: 'var(--text2)', verticalAlign: 'top', paddingTop: 12 }}>{fcId}</td>
