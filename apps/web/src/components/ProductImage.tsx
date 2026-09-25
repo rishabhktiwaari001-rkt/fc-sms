@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from 'react';
-import { api } from '../lib/api';
+import React, { useState } from 'react';
 
-// In-memory cache to avoid duplicate API requests across the page
-const imgCache: Record<string, string | null> = {};
-// Track in-flight requests to avoid simultaneous duplicates
-const inFlight: Record<string, Promise<string | null>> = {};
+// FirstCry image CDN URL — constructed directly from productId, no backend needed.
+// referrerpolicy="no-referrer" bypasses hotlink protection.
+function fcImageUrl(productId: string, size: 'sm' | 'md' | 'lg' = 'md') {
+  const dim = { sm: '109x133', md: '218x266', lg: '438x531' }[size];
+  return `https://cdn.fcglcdn.com/brainbees/images/products/${dim}/${productId}s.jpg`;
+}
 
 interface Props {
   productId: string;
@@ -12,47 +13,43 @@ interface Props {
 }
 
 export default function ProductImage({ productId, size = 40 }: Props) {
-  const [url, setUrl] = useState<string | null | undefined>(
-    productId in imgCache ? imgCache[productId] : undefined
-  );
+  const [failed, setFailed] = useState(false);
 
-  useEffect(() => {
-    if (!productId || productId in imgCache) return;
+  if (!productId || failed) return null;
 
-    const fetchImage = async () => {
-      if (!inFlight[productId]) {
-        inFlight[productId] = api
-          .get(`/images/${productId}`)
-          .then((r) => r.data.imageUrl ?? null)
-          .catch(() => null);
-      }
-      const result = await inFlight[productId];
-      imgCache[productId] = result;
-      setUrl(result);
-    };
-
-    fetchImage();
-  }, [productId]);
-
-  if (!url) return null;
+  const thumbUrl = fcImageUrl(productId, size >= 60 ? 'md' : 'sm');
+  const fullUrl  = fcImageUrl(productId, 'lg');
 
   return (
-    <img
-      src={url}
-      alt=""
-      width={size}
-      height={size}
-      style={{
-        width: size,
-        height: size,
-        objectFit: 'cover',
-        borderRadius: 4,
-        flexShrink: 0,
-        border: '1px solid var(--border)',
-        background: 'var(--bg2)',
-        display: 'block',
-      }}
-      onError={() => setUrl(null)}
-    />
+    <a
+      href={fullUrl}
+      target="_blank"
+      rel="noopener noreferrer"
+      title="View full image"
+      style={{ display: 'block', flexShrink: 0, lineHeight: 0 }}
+      onClick={e => e.stopPropagation()}
+    >
+      <img
+        src={thumbUrl}
+        alt=""
+        referrerPolicy="no-referrer"
+        width={size}
+        height={size}
+        style={{
+          width: size,
+          height: size,
+          objectFit: 'cover',
+          borderRadius: 4,
+          border: '1px solid var(--border)',
+          background: 'var(--bg2)',
+          display: 'block',
+          cursor: 'pointer',
+        }}
+        onError={() => setFailed(true)}
+      />
+    </a>
   );
 }
+
+// Standalone helper so other pages can use the same URL without the component
+export { fcImageUrl };

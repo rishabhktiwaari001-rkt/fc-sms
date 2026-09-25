@@ -35,9 +35,10 @@ function truncateBrands(s: string, maxLen = 100): string {
   return truncateList(s, maxLen);
 }
 
-// Try FC product image URL by productId
-function productImageUrl(productId: string) {
-  return `https://www.firstcry.com/assetsv2/imgs/products/medium/${productId}-1.jpg`;
+// FirstCry CDN image URL (referrerpolicy no-referrer bypasses hotlink protection)
+function productImageUrl(productId: string, size: 'sm' | 'md' | 'lg' = 'md') {
+  const dim = { sm: '109x133', md: '218x266', lg: '438x531' }[size];
+  return `https://cdn.fcglcdn.com/brainbees/images/products/${dim}/${productId}s.jpg`;
 }
 
 export default function Catalog() {
@@ -363,14 +364,21 @@ export default function Catalog() {
                         <tr key={p.id}>
                           {/* Product image */}
                           <td style={{ padding: '8px 10px' }}>
-                            <img
-                              src={productImageUrl(p.productId)}
-                              alt=""
-                              style={{ width: 60, height: 60, objectFit: 'contain', display: 'block', borderRadius: 4, background: '#f5f5f5' }}
-                              onError={(e) => {
-                                (e.target as HTMLImageElement).style.display = 'none';
-                              }}
-                            />
+                            <a
+                              href={productImageUrl(p.productId, 'lg')}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              title="View full image"
+                              style={{ display: 'block', lineHeight: 0 }}
+                            >
+                              <img
+                                src={productImageUrl(p.productId)}
+                                alt=""
+                                referrerPolicy="no-referrer"
+                                style={{ width: 60, height: 60, objectFit: 'contain', display: 'block', borderRadius: 4, background: '#f5f5f5', cursor: 'pointer' }}
+                                onError={(e) => { (e.target as HTMLImageElement).parentElement!.style.display = 'none'; }}
+                              />
+                            </a>
                           </td>
                           {/* FC Id */}
                           <td style={{ fontSize: 12, color: 'var(--text2)', verticalAlign: 'top', paddingTop: 12 }}>{fcId}</td>
