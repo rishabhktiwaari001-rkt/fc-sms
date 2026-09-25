@@ -1,0 +1,11 @@
+[phases.setup]
+nixPkgs = ["nodejs_22", "npm-10_x", "python3", "pkgconfig", "libtool", "autoconf", "automake", "openssl"]
+
+[phases.install]
+cmds = ["npm ci"]
+
+[phases.build]
+cmds = ["npm install && npm run build"]
+
+[start]
+cmd = "NODE_ENV=production node apps/api/dist/index.js"
