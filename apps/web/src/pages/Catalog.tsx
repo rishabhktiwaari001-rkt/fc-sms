@@ -35,10 +35,10 @@ function truncateBrands(s: string, maxLen = 100): string {
   return truncateList(s, maxLen);
 }
 
-// FirstCry CDN image URL (referrerpolicy no-referrer bypasses hotlink protection)
-function productImageUrl(productId: string, size: 'sm' | 'md' | 'lg' = 'md') {
-  const dim = { sm: '109x133', md: '218x266', lg: '438x531' }[size];
-  return `https://cdn.fcglcdn.com/brainbees/images/products/${dim}/${productId}s.jpg`;
+// Correct FirstCry CDN URL: 219x265 thumb / 438x531 full, suffix a.webp
+function productImageUrl(productId: string, full = false) {
+  const size = full ? '438x531' : '219x265';
+  return `https://cdn.fcglcdn.com/brainbees/images/products/${size}/${productId}a.webp`;
 }
 
 export default function Catalog() {
@@ -365,7 +365,7 @@ export default function Catalog() {
                           {/* Product image */}
                           <td style={{ padding: '8px 10px' }}>
                             <a
-                              href={productImageUrl(p.productId, 'lg')}
+                              href={productImageUrl(p.productId, true)}
                               target="_blank"
                               rel="noopener noreferrer"
                               title="View full image"

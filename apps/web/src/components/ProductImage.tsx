@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
 
-// FirstCry image CDN URL — constructed directly from productId, no backend needed.
-// referrerpolicy="no-referrer" bypasses hotlink protection.
-function fcImageUrl(productId: string, size: 'sm' | 'md' | 'lg' = 'md') {
-  const dim = { sm: '109x133', md: '218x266', lg: '438x531' }[size];
-  return `https://cdn.fcglcdn.com/brainbees/images/products/${dim}/${productId}s.jpg`;
+// Correct FirstCry CDN URL pattern confirmed from live site:
+// https://cdn.fcglcdn.com/brainbees/images/products/219x265/{productId}a.webp  (thumb)
+// https://cdn.fcglcdn.com/brainbees/images/products/438x531/{productId}a.webp  (full)
+function fcImageUrl(productId: string, full = false) {
+  const size = full ? '438x531' : '219x265';
+  return `https://cdn.fcglcdn.com/brainbees/images/products/${size}/${productId}a.webp`;
 }
 
 interface Props {
@@ -17,12 +18,9 @@ export default function ProductImage({ productId, size = 40 }: Props) {
 
   if (!productId || failed) return null;
 
-  const thumbUrl = fcImageUrl(productId, size >= 60 ? 'md' : 'sm');
-  const fullUrl  = fcImageUrl(productId, 'lg');
-
   return (
     <a
-      href={fullUrl}
+      href={fcImageUrl(productId, true)}
       target="_blank"
       rel="noopener noreferrer"
       title="View full image"
@@ -30,7 +28,7 @@ export default function ProductImage({ productId, size = 40 }: Props) {
       onClick={e => e.stopPropagation()}
     >
       <img
-        src={thumbUrl}
+        src={fcImageUrl(productId)}
         alt=""
         referrerPolicy="no-referrer"
         width={size}
@@ -51,5 +49,4 @@ export default function ProductImage({ productId, size = 40 }: Props) {
   );
 }
 
-// Standalone helper so other pages can use the same URL without the component
 export { fcImageUrl };
