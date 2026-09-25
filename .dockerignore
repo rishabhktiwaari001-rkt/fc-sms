@@ -1,0 +1,12 @@
+node_modules
+apps/api/dist
+apps/web/dist
+packages/types/dist
+.env
+.env.local
+*.log
+.DS_Store
+fcsms.db
+fcsms.db-shm
+fcsms.db-wal
+.turbo

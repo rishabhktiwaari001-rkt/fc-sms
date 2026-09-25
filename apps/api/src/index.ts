@@ -16,7 +16,7 @@ import dashboardRoutes from './routes/dashboard';
 import billingRoutes from './routes/billing';
 
 const app = express();
-const PORT = process.env.PORT || 4000; // deploy trigger v5
+const PORT = process.env.PORT || 4000; // deploy trigger v6
 
 // ── Middleware ────────────────────────────────────────────────────────────────
 // In production, frontend is served from same origin — CORS_ORIGIN mirrors request origin
