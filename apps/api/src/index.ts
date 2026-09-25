@@ -51,7 +51,7 @@ if (process.env.NODE_ENV === 'production') {
 }
 
 app.listen(PORT, () => {
-  console.log(`✅  FC SMS API running on http://localhost:${PORT}`);
+  console.log(`✅  Franchise Retail Management API running on http://localhost:${PORT}`);
 });
 
 export default app;

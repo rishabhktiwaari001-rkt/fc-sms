@@ -44,9 +44,9 @@ export default function Login() {
             fontSize: 22,
             marginBottom: 16,
           }}>🏪</div>
-          <h1 style={{ fontSize: 20, fontWeight: 700, letterSpacing: '-0.3px' }}>FC SMS</h1>
+          <h1 style={{ fontSize: 20, fontWeight: 700, letterSpacing: '-0.3px' }}>Franchise Retail Management</h1>
           <p style={{ fontSize: 12, color: 'var(--text2)', marginTop: 4 }}>
-            Franchise Store Management System
+            Franchise Retail Management
           </p>
         </div>
 

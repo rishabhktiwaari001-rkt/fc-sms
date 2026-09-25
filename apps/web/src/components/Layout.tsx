@@ -56,7 +56,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const { data: storeProfile } = useFetch<StoreProfile>('/billing/store-profile');
 
   const currentPath = '/' + location.pathname.split('/')[1];
-  const pageTitle = PAGE_TITLES[currentPath] ?? 'FC SMS';
+  const pageTitle = PAGE_TITLES[currentPath] ?? 'Franchise Retail Management';
 
   const displayName = storeProfile?.tradeName || storeProfile?.legalName || user?.storeName || 'Store Management';
   const displayAddr = [storeProfile?.city, storeProfile?.state].filter(Boolean).join(', ');
@@ -65,7 +65,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     <div className="app-shell">
       <aside className="sidebar">
         <div className="sidebar-brand">
-          <div className="sidebar-brand-name">FC SMS</div>
+          <div className="sidebar-brand-name">Franchise Retail Management</div>
           <div className="sidebar-store">{displayName}</div>
           {displayAddr && (
             <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)', marginTop: 2, lineHeight: 1.4 }}>
