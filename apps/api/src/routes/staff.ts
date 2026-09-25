@@ -22,18 +22,61 @@ router.get('/', async (req: AuthRequest, res) => {
 
 router.post('/', requireRole('STORE_ADMIN', 'SUPER_ADMIN'), async (req: AuthRequest, res) => {
   try {
-    const { name, phone, role, password } = req.body;
+    const { name, phone, role, password, storeId } = req.body;
     if (!name || !phone || !password) return res.status(400).json({ success: false, error: 'name, phone, password required' });
     const hashed = await bcrypt.hash(password, 10);
     const id = uid();
+    // SUPER_ADMIN can assign staff to any store by passing storeId in body
+    const assignedStoreId = req.user!.role === 'SUPER_ADMIN' && storeId ? storeId : req.user!.storeId;
     await query(
       `INSERT INTO "User"(id,name,phone,role,password,storeId) VALUES(?,?,?,?,?,?)`,
-      [id, name, phone, role ?? 'STAFF', hashed, req.user!.storeId]
+      [id, name, phone, role ?? 'STAFF', hashed, assignedStoreId]
     );
     const result = await query(`SELECT id,name,phone,role,isActive,createdAt FROM "User" WHERE id=?`, [id]);
     return res.status(201).json({ success: true, data: result.rows[0] });
   } catch (err) {
     return res.status(400).json({ success: false, error: String(err) });
+  }
+});
+
+// Edit staff name / password / role
+router.patch('/:id', requireRole('STORE_ADMIN', 'SUPER_ADMIN'), async (req: AuthRequest, res) => {
+  try {
+    const { name, password, role } = req.body;
+    // For SUPER_ADMIN, allow editing across stores; for others, restrict to own store
+    const whereClause = req.user!.role === 'SUPER_ADMIN'
+      ? `WHERE id=?`
+      : `WHERE id=? AND storeId=?`;
+    const whereParams = req.user!.role === 'SUPER_ADMIN'
+      ? [req.params.id]
+      : [req.params.id, req.user!.storeId];
+
+    const current = await query(`SELECT * FROM "User" ${whereClause}`, whereParams);
+    if (!current.rows[0]) return res.status(404).json({ success: false, error: 'Staff not found' });
+
+    const updates: string[] = [];
+    const params: any[] = [];
+
+    if (name) { updates.push('name=?'); params.push(name); }
+    if (password) {
+      const hashed = await bcrypt.hash(password, 10);
+      updates.push('password=?');
+      params.push(hashed);
+    }
+    if (role && req.user!.role === 'SUPER_ADMIN') {
+      updates.push('role=?');
+      params.push(role);
+    }
+
+    if (updates.length === 0) return res.status(400).json({ success: false, error: 'Nothing to update' });
+
+    params.push(req.params.id);
+    await query(`UPDATE "User" SET ${updates.join(', ')} WHERE id=?`, params);
+
+    const result = await query(`SELECT id,name,phone,role,isActive,createdAt FROM "User" WHERE id=?`, [req.params.id]);
+    return res.json({ success: true, data: result.rows[0] });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: String(err) });
   }
 });
 
