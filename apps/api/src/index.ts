@@ -14,6 +14,7 @@ import membersRoutes from './routes/members';
 import eossRoutes from './routes/eoss';
 import dashboardRoutes from './routes/dashboard';
 import billingRoutes from './routes/billing';
+import imagesRoutes from './routes/images';
 
 const app = express();
 const PORT = process.env.PORT || 4000; // deploy trigger v6
@@ -36,6 +37,7 @@ app.use('/api/members', membersRoutes);
 app.use('/api/eoss', eossRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/billing', billingRoutes);
+app.use('/api/images', imagesRoutes);
 
 // ── Health check ──────────────────────────────────────────────────────────────
 app.get('/health', (_req, res) => res.json({ ok: true, ts: new Date().toISOString() }));

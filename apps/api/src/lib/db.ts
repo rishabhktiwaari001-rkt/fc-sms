@@ -293,6 +293,15 @@ function initSchema() {
     CREATE INDEX IF NOT EXISTS InvoiceItem_invoiceId ON "InvoiceItem"(invoiceId);
   `);
 
+  // Migrate: add ProductImageCache table
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS "ProductImageCache" (
+      productId TEXT PRIMARY KEY,
+      imageUrl TEXT,
+      fetchedAt TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+  `);
+
   // Seed if empty
   const count = (db.prepare('SELECT COUNT(*) as c FROM "Store"').get() as any).c;
   if (count === 0) {

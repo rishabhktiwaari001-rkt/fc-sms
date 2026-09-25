@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useFetch } from '../hooks/useFetch';
+import ProductImage from '../components/ProductImage';
 import { api } from '../lib/api';
 import { Load } from '@fc-sms/types';
 
@@ -102,7 +103,12 @@ export default function ViewStock() {
                       {productResults.map((r: any) => (
                         <tr key={r.id}>
                           <td className="mono" style={{ fontSize: 12 }}>{r.productId}</td>
-                          <td style={{ fontSize: 13 }}>{r.productName}</td>
+                          <td style={{ fontSize: 13 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <ProductImage productId={r.productId} size={36} />
+                              <span>{r.productName}</span>
+                            </div>
+                          </td>
                           <td>
                             <button
                               className="btn btn-ghost btn-sm"

@@ -2,6 +2,7 @@ import React, { useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useFetch } from '../hooks/useFetch';
 import { api } from '../lib/api';
+import ProductImage from '../components/ProductImage';
 
 interface Product {
   id: string;
@@ -220,9 +221,14 @@ export default function LoadDetail() {
                   <tr key={p.id} style={{ background: status === 'ok' ? 'rgba(16,185,129,0.04)' : status === 'short' ? 'rgba(239,68,68,0.03)' : '' }}>
                     <td style={{ color: 'var(--text2)', fontSize: 11 }}>{i + 1}</td>
                     <td className="mono" style={{ fontSize: 12, fontWeight: 600 }}>{p.productId}</td>
-                    <td style={{ maxWidth: 280 }}>
-                      <div style={{ fontSize: 13, lineHeight: 1.3 }}>{p.productName}</div>
-                      {p.barcode && <div style={{ fontSize: 10, color: 'var(--text2)', fontFamily: 'var(--mono)' }}>📦 {p.barcode}</div>}
+                    <td style={{ maxWidth: 320 }}>
+                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                        <ProductImage productId={p.productId} size={40} />
+                        <div>
+                          <div style={{ fontSize: 13, lineHeight: 1.3 }}>{p.productName}</div>
+                          {p.barcode && <div style={{ fontSize: 10, color: 'var(--text2)', fontFamily: 'var(--mono)' }}>📦 {p.barcode}</div>}
+                        </div>
+                      </div>
                     </td>
                     <td className="mono" style={{ fontSize: 11, color: 'var(--text2)' }}>{p.boxId ?? '—'}</td>
                     <td style={{ textAlign: 'center', fontWeight: 600 }}>{p.quantity}</td>
