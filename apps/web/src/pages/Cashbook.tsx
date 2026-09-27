@@ -78,25 +78,30 @@ export default function Cashbook() {
   const [historyMonth, setHistoryMonth] = useState(today().slice(0,7));
   const [histLoading, setHistLoading] = useState(false);
   const [tab, setTab] = useState<'entry'|'history'>('entry');
+  const [openingMode, setOpeningMode] = useState<'auto'|'manual'>('auto');
+  const [autoOpening, setAutoOpening] = useState(0);
 
   // Load entry for selected date
   const loadEntry = useCallback(async (date: string) => {
     setError(null); setSaved(false);
     try {
-      // Load today's entry (if exists)
       const entryRes = await api.get(`/cashbook/${date}`);
       const entry: CashbookEntry | null = entryRes.data.data;
-      // Load opening cash (denomination total of previous day)
       const openRes = await api.get(`/cashbook/opening?date=${date}`);
       const opening: number = openRes.data.data?.opening ?? 0;
+      setAutoOpening(opening);
 
       if (entry) {
         setForm({ ...entry });
+        // If saved opening differs from auto, switch to manual mode
+        setOpeningMode(Math.abs(entry.openingCash - opening) > 0.01 ? 'manual' : 'auto');
       } else {
         setForm(emptyForm(date, opening));
+        setOpeningMode('auto');
       }
     } catch {
       setForm(emptyForm(date));
+      setAutoOpening(0);
     }
   }, []);
 
@@ -161,18 +166,50 @@ export default function Cashbook() {
       {/* ══════════ ENTRY TAB ══════════ */}
       {tab === 'entry' && (
         <>
-          {/* Date selector */}
-          <div style={{ ...card, display:'flex', alignItems:'center', gap:16, padding:'12px 16px' }}>
-            <label style={{ fontSize:13, fontWeight:600, color:'var(--text2)' }}>Entry Date:</label>
-            <input
-              type="date"
-              value={activeDate}
-              onChange={e => { setActiveDate(e.target.value); }}
-              style={{ padding:'5px 10px', borderRadius:6, border:'1px solid var(--border)', background:'var(--bg1)', color:'var(--text1)', fontSize:14 }}
-            />
-            <div style={{ fontSize:13, color:'var(--text2)' }}>
-              Opening Cash: <strong style={{ color:'var(--text1)' }}>{fmtRs(form.openingCash)}</strong>
-              <span style={{ marginLeft:8, fontSize:11 }}>(auto from prev day)</span>
+          {/* Date + Opening Cash selector */}
+          <div style={{ ...card, padding:'12px 16px' }}>
+            <div style={{ display:'flex', alignItems:'center', gap:16, flexWrap:'wrap' }}>
+              <label style={{ fontSize:13, fontWeight:600, color:'var(--text2)' }}>Entry Date:</label>
+              <input
+                type="date"
+                value={activeDate}
+                onChange={e => { setActiveDate(e.target.value); }}
+                style={{ padding:'5px 10px', borderRadius:6, border:'1px solid var(--border)', background:'var(--bg1)', color:'var(--text1)', fontSize:14 }}
+              />
+              <div style={{ display:'flex', alignItems:'center', gap:10, marginLeft:'auto' }}>
+                <span style={{ fontSize:13, fontWeight:600, color:'var(--text2)' }}>Opening Cash:</span>
+                {/* Mode toggle */}
+                <div style={{ display:'flex', borderRadius:6, overflow:'hidden', border:'1px solid var(--border)' }}>
+                  <button
+                    onClick={() => { setOpeningMode('auto'); setField('openingCash', autoOpening); }}
+                    style={{ padding:'4px 10px', fontSize:12, fontWeight:600, cursor:'pointer', border:'none',
+                      background: openingMode==='auto' ? 'var(--brand)' : 'var(--bg1)',
+                      color: openingMode==='auto' ? '#fff' : 'var(--text2)' }}>
+                    Auto
+                  </button>
+                  <button
+                    onClick={() => setOpeningMode('manual')}
+                    style={{ padding:'4px 10px', fontSize:12, fontWeight:600, cursor:'pointer', border:'none',
+                      background: openingMode==='manual' ? 'var(--brand)' : 'var(--bg1)',
+                      color: openingMode==='manual' ? '#fff' : 'var(--text2)' }}>
+                    Manual
+                  </button>
+                </div>
+                {openingMode === 'auto' ? (
+                  <strong style={{ fontSize:15, color:'var(--text1)' }}>{fmtRs(form.openingCash)}</strong>
+                ) : (
+                  <input
+                    type="number" min={0} step="0.01"
+                    value={form.openingCash || ''}
+                    onChange={e => setField('openingCash', parseFloat(e.target.value)||0)}
+                    placeholder="Enter opening cash"
+                    style={{ padding:'5px 10px', borderRadius:6, border:'1px solid var(--brand)', background:'var(--bg1)', color:'var(--text1)', fontSize:14, width:160 }}
+                  />
+                )}
+                {openingMode === 'auto' && (
+                  <span style={{ fontSize:11, color:'var(--text2)' }}>from prev day denom</span>
+                )}
+              </div>
             </div>
           </div>
 
