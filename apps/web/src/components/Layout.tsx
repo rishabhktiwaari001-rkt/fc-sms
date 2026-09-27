@@ -29,6 +29,7 @@ const NAV = [
   { path: '/sr',       icon: '↩️',  label: 'Stock Return' },
   { path: '/eoss',     icon: '🏷️',  label: 'EOSS' },
   { path: '/members',  icon: '👥', label: 'Members' },
+  { path: '/pod',      icon: '📚', label: 'POD Training' },
   { section: 'ADMIN' },
   { path: '/staff',    icon: '👤', label: 'Staff' },
   { path: '/stores',   icon: '🏪', label: 'Stores', superOnly: true },
@@ -46,6 +47,7 @@ const PAGE_TITLES: Record<string, string> = {
   '/sr':        'Stock Return',
   '/eoss':      'EOSS',
   '/members':   'Members',
+  '/pod':       'POD Training',
   '/staff':     'Staff',
   '/stores':    'Stores',
 };
