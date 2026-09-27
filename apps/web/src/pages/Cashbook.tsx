@@ -363,16 +363,41 @@ export default function Cashbook() {
                   })}
                 </tbody>
                 <tfoot>
-                  <tr style={{ background:'var(--bg2)', fontWeight:700 }}>
-                    <td colSpan={2} style={{ padding:'8px 4px', fontSize:13 }}>Total Cash in Hand</td>
-                    <td style={{ padding:'8px 4px', textAlign:'right', fontSize:15, color:'#b45309' }}>{fmtRs(denomCash)}</td>
+                  {/* Gross count — secondary */}
+                  <tr style={{ color:'var(--text2)' }}>
+                    <td colSpan={2} style={{ padding:'6px 4px', fontSize:12 }}>Total Counted</td>
+                    <td style={{ padding:'6px 4px', textAlign:'right', fontSize:13 }}>{fmtRs(denomCash)}</td>
                   </tr>
-                  {Math.abs(denomCash - closingCash) > 0.01 && (
-                    <tr style={{ color: denomCash >= closingCash ? 'var(--green)' : 'var(--red)' }}>
+                  {/* Deposit deduction — shown only if deposit entered */}
+                  {(form.depositAmount || 0) > 0 && (
+                    <tr style={{ color:'var(--red)' }}>
+                      <td colSpan={2} style={{ padding:'4px 4px', fontSize:12 }}>− Deposit</td>
+                      <td style={{ padding:'4px 4px', textAlign:'right', fontSize:12, fontWeight:600 }}>
+                        −{fmtRs(form.depositAmount)}
+                      </td>
+                    </tr>
+                  )}
+                  {/* PRIMARY: Cash in Hand = denom − deposit (auto-updates when deposit changes) */}
+                  <tr style={{ background:'var(--bg2)', fontWeight:700, borderTop:'2px solid var(--border)' }}>
+                    <td colSpan={2} style={{ padding:'8px 4px', fontSize:13 }}>💵 Cash in Hand</td>
+                    <td style={{ padding:'8px 4px', textAlign:'right', fontSize:15, color:'#b45309' }}>
+                      {fmtRs(denomCash - (form.depositAmount || 0))}
+                    </td>
+                  </tr>
+                  {/* vs. Expected Closing comparison */}
+                  {Math.abs((denomCash - (form.depositAmount || 0)) - closingCash) > 0.01 && (
+                    <tr style={{ color: (denomCash - (form.depositAmount || 0)) >= closingCash ? 'var(--green)' : 'var(--red)' }}>
                       <td colSpan={2} style={{ padding:'4px 4px', fontSize:11 }}>vs. Expected Closing</td>
                       <td style={{ padding:'4px 4px', textAlign:'right', fontSize:12, fontWeight:600 }}>
-                        {denomCash >= closingCash ? '+' : ''}{fmtRs(denomCash - closingCash)}
+                        {(denomCash - (form.depositAmount || 0)) >= closingCash ? '+' : ''}
+                        {fmtRs((denomCash - (form.depositAmount || 0)) - closingCash)}
                       </td>
+                    </tr>
+                  )}
+                  {Math.abs((denomCash - (form.depositAmount || 0)) - closingCash) <= 0.01 && denomCash > 0 && (
+                    <tr style={{ color:'var(--green)' }}>
+                      <td colSpan={2} style={{ padding:'4px 4px', fontSize:11 }}>vs. Expected Closing</td>
+                      <td style={{ padding:'4px 4px', textAlign:'right', fontSize:12, fontWeight:600 }}>✓ Match</td>
                     </tr>
                   )}
                 </tfoot>
@@ -426,7 +451,8 @@ export default function Cashbook() {
                 </thead>
                 <tbody>
                   {history.map(e => {
-                    const cb_ = cbTotal(e), sys_ = sysTotal(e), diff_ = cb_ - sys_, denom_ = denomTotal(e);
+                    const cb_ = cbTotal(e), sys_ = sysTotal(e), diff_ = cb_ - sys_;
+                    const closing_ = Number(e.openingCash || 0) + Number(e.cbCash || 0) - Number(e.depositAmount || 0);
                     return (
                       <tr key={e.id} style={{ cursor:'pointer' }} onClick={() => { setActiveDate(e.date); setTab('entry'); }}>
                         <td style={{ fontWeight:600 }}>{fmtDate(e.date)}</td>
@@ -439,7 +465,7 @@ export default function Cashbook() {
                           {diff_>0?'+':''}{fmtRs(diff_)}
                         </td>
                         <td style={{ textAlign:'right', fontVariantNumeric:'tabular-nums', color:'#7c3aed' }}>{fmtRs(e.depositAmount)}</td>
-                        <td style={{ textAlign:'right', fontVariantNumeric:'tabular-nums', fontWeight:700, color:'#b45309' }}>{fmtRs(denom_)}</td>
+                        <td style={{ textAlign:'right', fontVariantNumeric:'tabular-nums', fontWeight:700, color:'#b45309' }}>{fmtRs(closing_)}</td>
                       </tr>
                     );
                   })}
