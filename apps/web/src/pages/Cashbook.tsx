@@ -436,21 +436,31 @@ export default function Cashbook() {
           {!histLoading && history.length > 0 && (
             <>
               {/* ── Month summary strip ── */}
-              <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:10, marginBottom:16 }}>
-                {[
-                  { label:'📒 CB Total Sales', value: history.reduce((s,e)=>s+cbTotal(e),0), color:'#1d4ed8' },
-                  { label:'🖥️ Sys Total Sales', value: history.reduce((s,e)=>s+sysTotal(e),0), color:'#059669' },
-                  { label:'🏦 Total Deposit',   value: history.reduce((s,e)=>s+Number(e.depositAmount||0),0), color:'#7c3aed' },
-                  { label:'📅 Days Entered',    value: history.length, color:'#b45309', isCount: true },
-                ].map(({ label, value, color, isCount }) => (
-                  <div key={label} style={{ background:'var(--bg2)', borderRadius:8, padding:'10px 14px', borderLeft:`3px solid ${color}` }}>
-                    <div style={{ fontSize:11, color:'var(--text2)', fontWeight:500, marginBottom:4 }}>{label}</div>
-                    <div style={{ fontSize:16, fontWeight:700, color, fontVariantNumeric:'tabular-nums' }}>
-                      {isCount ? value : fmtRs(value as number)}
-                    </div>
+              {(() => {
+                const totalCB  = history.reduce((s,e)=>s+cbTotal(e),0);
+                const totalSys = history.reduce((s,e)=>s+sysTotal(e),0);
+                const totalDiff = totalCB - totalSys;
+                const diffColor = totalDiff === 0 ? 'var(--green)' : totalDiff > 0 ? '#d97706' : 'var(--red)';
+                const diffLabel = totalDiff === 0 ? '✅ Balanced' : totalDiff > 0 ? '⚠️ CB Excess' : '🔴 CB Short';
+                return (
+                  <div style={{ display:'grid', gridTemplateColumns:'repeat(5,1fr)', gap:10, marginBottom:16 }}>
+                    {[
+                      { label:'📒 CB Total Sales', value: totalCB,  color:'#1d4ed8' },
+                      { label:'🖥️ Sys Total Sales', value: totalSys, color:'#059669' },
+                      { label: diffLabel,           value: totalDiff, color: diffColor, showSign: true },
+                      { label:'🏦 Total Deposit',   value: history.reduce((s,e)=>s+Number(e.depositAmount||0),0), color:'#7c3aed' },
+                      { label:'📅 Days Entered',    value: history.length, color:'#b45309', isCount: true },
+                    ].map(({ label, value, color, isCount, showSign }) => (
+                      <div key={label} style={{ background:'var(--bg2)', borderRadius:8, padding:'10px 14px', borderLeft:`3px solid ${color}` }}>
+                        <div style={{ fontSize:11, color:'var(--text2)', fontWeight:500, marginBottom:4 }}>{label}</div>
+                        <div style={{ fontSize:16, fontWeight:700, color, fontVariantNumeric:'tabular-nums' }}>
+                          {isCount ? value : `${showSign && (value as number) > 0 ? '+' : ''}${fmtRs(value as number)}`}
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
+                );
+              })()}
             </>
           )}
 
