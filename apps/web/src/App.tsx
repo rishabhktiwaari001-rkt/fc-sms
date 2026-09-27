@@ -4,7 +4,6 @@ import { AuthContext, createAuthValue } from './hooks/useAuth';
 import Layout from './components/Layout';
 import Login from './pages/Login';
 
-// Lazy-load pages
 import Dashboard from './pages/Dashboard';
 import Import from './pages/Import';
 import ViewStock from './pages/ViewStock';
@@ -21,6 +20,7 @@ import LoadDetail from './pages/LoadDetail';
 import ManualBilling from './pages/ManualBilling';
 import Cashbook from './pages/Cashbook';
 import POD from './pages/POD';
+import RetailMatrix from './pages/RetailMatrix';
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const token = localStorage.getItem('fc_token');
@@ -56,6 +56,7 @@ export default function App() {
                   <Route path="eoss" element={<EOSS />} />
                   <Route path="cashbook" element={<Cashbook />} />
                   <Route path="pod" element={<POD />} />
+                  <Route path="matrix" element={<RetailMatrix />} />
                   <Route path="billing" element={<ManualBilling />} />
                   <Route path="members" element={<Members />} />
                   <Route path="staff" element={<Staff />} />
