@@ -434,11 +434,33 @@ export default function Cashbook() {
           )}
 
           {!histLoading && history.length > 0 && (
+            <>
+              {/* ── Month summary strip ── */}
+              <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:10, marginBottom:16 }}>
+                {[
+                  { label:'📒 CB Total Sales', value: history.reduce((s,e)=>s+cbTotal(e),0), color:'#1d4ed8' },
+                  { label:'🖥️ Sys Total Sales', value: history.reduce((s,e)=>s+sysTotal(e),0), color:'#059669' },
+                  { label:'🏦 Total Deposit',   value: history.reduce((s,e)=>s+Number(e.depositAmount||0),0), color:'#7c3aed' },
+                  { label:'📅 Days Entered',    value: history.length, color:'#b45309', isCount: true },
+                ].map(({ label, value, color, isCount }) => (
+                  <div key={label} style={{ background:'var(--bg2)', borderRadius:8, padding:'10px 14px', borderLeft:`3px solid ${color}` }}>
+                    <div style={{ fontSize:11, color:'var(--text2)', fontWeight:500, marginBottom:4 }}>{label}</div>
+                    <div style={{ fontSize:16, fontWeight:700, color, fontVariantNumeric:'tabular-nums' }}>
+                      {isCount ? value : fmtRs(value as number)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+
+          {!histLoading && history.length > 0 && (
             <div className="tbl-wrap">
               <table>
                 <thead>
                   <tr>
                     <th>Date</th>
+                    <th style={{ textAlign:'right' }}>Opening</th>
                     <th style={{ textAlign:'right' }}>CB Cash</th>
                     <th style={{ textAlign:'right' }}>CB CC</th>
                     <th style={{ textAlign:'right' }}>CB UPI</th>
@@ -456,6 +478,7 @@ export default function Cashbook() {
                     return (
                       <tr key={e.id} style={{ cursor:'pointer' }} onClick={() => { setActiveDate(e.date); setTab('entry'); }}>
                         <td style={{ fontWeight:600 }}>{fmtDate(e.date)}</td>
+                        <td style={{ textAlign:'right', fontVariantNumeric:'tabular-nums', color:'var(--text2)' }}>{fmtRs(Number(e.openingCash||0))}</td>
                         <td style={{ textAlign:'right', fontVariantNumeric:'tabular-nums' }}>{fmtRs(e.cbCash)}</td>
                         <td style={{ textAlign:'right', fontVariantNumeric:'tabular-nums' }}>{fmtRs(e.cbCreditCard)}</td>
                         <td style={{ textAlign:'right', fontVariantNumeric:'tabular-nums' }}>{fmtRs(e.cbUpi)}</td>
@@ -473,6 +496,7 @@ export default function Cashbook() {
                 <tfoot>
                   <tr style={{ background:'var(--bg2)', fontWeight:700 }}>
                     <td>Month Total</td>
+                    <td />
                     <td style={{ textAlign:'right' }}>{fmtRs(history.reduce((s,e)=>s+e.cbCash,0))}</td>
                     <td style={{ textAlign:'right' }}>{fmtRs(history.reduce((s,e)=>s+e.cbCreditCard,0))}</td>
                     <td style={{ textAlign:'right' }}>{fmtRs(history.reduce((s,e)=>s+e.cbUpi,0))}</td>
