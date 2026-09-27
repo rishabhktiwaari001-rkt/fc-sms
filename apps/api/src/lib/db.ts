@@ -302,6 +302,53 @@ function initSchema() {
     );
   `);
 
+  // Migrate: add CashbookEntry table
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS "CashbookEntry" (
+      id TEXT PRIMARY KEY,
+      storeId TEXT NOT NULL,
+      date TEXT NOT NULL,
+
+      openingCash REAL NOT NULL DEFAULT 0,
+
+      cbCash       REAL NOT NULL DEFAULT 0,
+      cbCreditCard REAL NOT NULL DEFAULT 0,
+      cbUpi        REAL NOT NULL DEFAULT 0,
+      cbManualBill REAL NOT NULL DEFAULT 0,
+      cbCreditNote REAL NOT NULL DEFAULT 0,
+
+      sysCash       REAL NOT NULL DEFAULT 0,
+      sysCreditCard REAL NOT NULL DEFAULT 0,
+      sysPinelab    REAL NOT NULL DEFAULT 0,
+      sysUpi        REAL NOT NULL DEFAULT 0,
+      sysCreditNote REAL NOT NULL DEFAULT 0,
+
+      depositDate   TEXT,
+      depositAmount REAL NOT NULL DEFAULT 0,
+      depositBank   TEXT NOT NULL DEFAULT 'HDFC BANK',
+
+      d2000 INTEGER NOT NULL DEFAULT 0,
+      d500  INTEGER NOT NULL DEFAULT 0,
+      d200  INTEGER NOT NULL DEFAULT 0,
+      d100  INTEGER NOT NULL DEFAULT 0,
+      d50   INTEGER NOT NULL DEFAULT 0,
+      d20   INTEGER NOT NULL DEFAULT 0,
+      d10   INTEGER NOT NULL DEFAULT 0,
+      d5    INTEGER NOT NULL DEFAULT 0,
+      d2    INTEGER NOT NULL DEFAULT 0,
+      d1    INTEGER NOT NULL DEFAULT 0,
+
+      remark TEXT,
+      createdAt TEXT NOT NULL DEFAULT (datetime('now')),
+      updatedAt TEXT NOT NULL DEFAULT (datetime('now')),
+      createdBy TEXT NOT NULL DEFAULT '',
+
+      UNIQUE (storeId, date),
+      FOREIGN KEY (storeId) REFERENCES "Store"(id)
+    );
+    CREATE INDEX IF NOT EXISTS CashbookEntry_storeId_date ON "CashbookEntry"(storeId, date);
+  `);
+
   // Seed if empty
   const count = (db.prepare('SELECT COUNT(*) as c FROM "Store"').get() as any).c;
   if (count === 0) {
