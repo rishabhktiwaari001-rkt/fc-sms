@@ -19,6 +19,7 @@ import Staff from './pages/Staff';
 import Stores from './pages/Stores';
 import LoadDetail from './pages/LoadDetail';
 import ManualBilling from './pages/ManualBilling';
+import Cashbook from './pages/Cashbook';
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const token = localStorage.getItem('fc_token');
@@ -52,6 +53,7 @@ export default function App() {
                   <Route path="audits/:id" element={<AuditDetail />} />
                   <Route path="sr" element={<StockReturn />} />
                   <Route path="eoss" element={<EOSS />} />
+                  <Route path="cashbook" element={<Cashbook />} />
                   <Route path="billing" element={<ManualBilling />} />
                   <Route path="members" element={<Members />} />
                   <Route path="staff" element={<Staff />} />
