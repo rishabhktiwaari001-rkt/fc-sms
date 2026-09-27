@@ -13,7 +13,7 @@ COPY apps/web/package.json        ./apps/web/
 COPY packages/types/package.json  ./packages/types/
 
 # Install all deps (dev included — needed to compile TS and run Vite)
-RUN npm ci
+RUN npm install
 
 # Copy source
 COPY . .
