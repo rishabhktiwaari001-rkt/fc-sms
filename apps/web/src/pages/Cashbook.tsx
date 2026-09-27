@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { api } from '../lib/api';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -80,10 +80,15 @@ export default function Cashbook() {
   const [tab, setTab] = useState<'entry'|'history'>('entry');
   const [openingMode, setOpeningMode] = useState<'auto'|'manual'>('auto');
   const [autoOpening, setAutoOpening] = useState(0);
+  const [autoSaveStatus, setAutoSaveStatus] = useState<'idle'|'pending'|'saving'|'saved'|'error'>('idle');
+  const autoSaveTimer = useRef<ReturnType<typeof setTimeout>|null>(null);
+  const isLoadingRef = useRef(false);
 
   // Load entry for selected date
   const loadEntry = useCallback(async (date: string) => {
-    setError(null); setSaved(false);
+    setError(null); setSaved(false); setAutoSaveStatus('idle');
+    isLoadingRef.current = true;
+    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
     try {
       const entryRes = await api.get(`/cashbook/${date}`);
       const entry: CashbookEntry | null = entryRes.data.data;
@@ -93,7 +98,6 @@ export default function Cashbook() {
 
       if (entry) {
         setForm({ ...entry });
-        // If saved opening differs from auto, switch to manual mode
         setOpeningMode(Math.abs(entry.openingCash - opening) > 0.01 ? 'manual' : 'auto');
       } else {
         setForm(emptyForm(date, opening));
@@ -102,6 +106,9 @@ export default function Cashbook() {
     } catch {
       setForm(emptyForm(date));
       setAutoOpening(0);
+    } finally {
+      // small delay so the form useEffect doesn't fire on initial load
+      setTimeout(() => { isLoadingRef.current = false; }, 300);
     }
   }, []);
 
@@ -119,18 +126,42 @@ export default function Cashbook() {
 
   useEffect(() => { if (tab === 'history') loadHistory(historyMonth); }, [tab, historyMonth, loadHistory]);
 
+  // ── Auto-save: debounce 1.5s after any form change ────────────────────────
+  useEffect(() => {
+    if (isLoadingRef.current) return;
+    if (tab !== 'entry') return;
+    setAutoSaveStatus('pending');
+    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
+    autoSaveTimer.current = setTimeout(async () => {
+      setAutoSaveStatus('saving');
+      try {
+        await api.post('/cashbook', form);
+        setAutoSaveStatus('saved');
+        setSaved(true);
+        setTimeout(() => setAutoSaveStatus('idle'), 2500);
+      } catch {
+        setAutoSaveStatus('error');
+      }
+    }, 1500);
+    return () => { if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form]);
+
   function setField<K extends keyof FormState>(key: K, val: FormState[K]) {
     setForm(f => ({ ...f, [key]: val }));
     setSaved(false);
   }
 
   async function handleSave() {
-    setSaving(true); setError(null); setSaved(false);
+    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
+    setSaving(true); setError(null); setSaved(false); setAutoSaveStatus('saving');
     try {
       await api.post('/cashbook', form);
-      setSaved(true);
+      setSaved(true); setAutoSaveStatus('saved');
+      setTimeout(() => setAutoSaveStatus('idle'), 2500);
     } catch (e: any) {
       setError(e?.response?.data?.error ?? 'Save failed');
+      setAutoSaveStatus('error');
     } finally { setSaving(false); }
   }
 
@@ -219,11 +250,21 @@ export default function Cashbook() {
               ✗ {error}
             </div>
           )}
-          {saved && (
-            <div style={{ marginBottom:12, padding:'8px 14px', borderRadius:6, fontSize:13, fontWeight:500, background:'rgba(16,185,129,0.1)', color:'var(--green)', border:'1px solid rgba(16,185,129,0.25)' }}>
-              ✓ Saved successfully
-            </div>
-          )}
+          {/* Auto-save status bar */}
+          <div style={{ marginBottom:8, height:28, display:'flex', alignItems:'center', justifyContent:'flex-end' }}>
+            {autoSaveStatus === 'pending' && (
+              <span style={{ fontSize:12, color:'var(--text2)' }}>✏️ Unsaved changes…</span>
+            )}
+            {autoSaveStatus === 'saving' && (
+              <span style={{ fontSize:12, color:'var(--text2)' }}>⟳ Auto-saving…</span>
+            )}
+            {autoSaveStatus === 'saved' && (
+              <span style={{ fontSize:12, color:'var(--green)', fontWeight:600 }}>✓ Auto-saved</span>
+            )}
+            {autoSaveStatus === 'error' && (
+              <span style={{ fontSize:12, color:'var(--red)', fontWeight:600 }}>✗ Save failed — retry manually</span>
+            )}
+          </div>
 
           {/* ── Cash Book (Manual) + System — side by side ── */}
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:16, marginBottom:16 }}>
@@ -405,10 +446,10 @@ export default function Cashbook() {
             </div>
           </div>
 
-          {/* ── Save button ── */}
+          {/* ── Save button (manual fallback) ── */}
           <div style={{ display:'flex', justifyContent:'flex-end', gap:10, marginBottom:24 }}>
-            <button className="btn btn-brand" disabled={saving} onClick={handleSave} style={{ minWidth:140, fontSize:15 }}>
-              {saving ? '⟳ Saving…' : '💾 Save Entry'}
+            <button className="btn btn-ghost" disabled={saving} onClick={handleSave} style={{ fontSize:13, color:'var(--text2)' }}>
+              {saving ? '⟳ Saving…' : '💾 Save Now'}
             </button>
           </div>
         </>
