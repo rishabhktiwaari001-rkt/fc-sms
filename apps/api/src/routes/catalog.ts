@@ -2,6 +2,7 @@ import { Router } from 'express';
 import multer from 'multer';
 import https from 'https';
 import http from 'http';
+import zlib from 'zlib';
 import { query, uid } from '../lib/db';
 import { authenticate, storeScope, AuthRequest } from '../middleware/auth';
 
@@ -18,7 +19,7 @@ router.get('/fcprice/:productId', async (req: AuthRequest, res) => {
 
   const url = `https://www.firstcry.com/p-${productId}`;
 
-  function fetchUrl(targetUrl: string, redirectsLeft = 4): Promise<string> {
+  function fetchUrl(targetUrl: string, redirectsLeft = 5): Promise<string> {
     return new Promise((resolve, reject) => {
       const parsed = new URL(targetUrl);
       const lib = parsed.protocol === 'https:' ? https : http;
@@ -27,25 +28,43 @@ router.get('/fcprice/:productId', async (req: AuthRequest, res) => {
         path: parsed.pathname + parsed.search,
         method: 'GET',
         headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-          'Accept-Language': 'en-IN,en;q=0.5',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+          'Accept-Language': 'en-IN,en-GB;q=0.9,en;q=0.8',
+          'Accept-Encoding': 'gzip, deflate, br',
           'Cache-Control': 'no-cache',
+          'Pragma': 'no-cache',
+          'Upgrade-Insecure-Requests': '1',
+          'Sec-Fetch-Dest': 'document',
+          'Sec-Fetch-Mode': 'navigate',
+          'Sec-Fetch-Site': 'none',
+          'Sec-Fetch-User': '?1',
         },
       };
       const reqObj = lib.request(options, (r) => {
-        if ((r.statusCode === 301 || r.statusCode === 302 || r.statusCode === 307 || r.statusCode === 308) && r.headers.location && redirectsLeft > 0) {
-          const next = r.headers.location.startsWith('http') ? r.headers.location : `${parsed.protocol}//${parsed.hostname}${r.headers.location}`;
+        if ([301,302,307,308].includes(r.statusCode ?? 0) && r.headers.location && redirectsLeft > 0) {
+          const next = r.headers.location.startsWith('http')
+            ? r.headers.location
+            : `${parsed.protocol}//${parsed.hostname}${r.headers.location}`;
           r.resume();
           return resolve(fetchUrl(next, redirectsLeft - 1));
         }
         const chunks: Buffer[] = [];
         r.on('data', (c: Buffer) => chunks.push(c));
-        r.on('end', () => resolve(Buffer.concat(chunks).toString('utf-8')));
+        r.on('end', () => {
+          const buf = Buffer.concat(chunks);
+          const enc = (r.headers['content-encoding'] ?? '').toLowerCase();
+          try {
+            if (enc === 'gzip')    return resolve(zlib.gunzipSync(buf).toString('utf-8'));
+            if (enc === 'deflate') return resolve(zlib.inflateSync(buf).toString('utf-8'));
+            if (enc === 'br')      return resolve(zlib.brotliDecompressSync(buf).toString('utf-8'));
+          } catch { /* fall through to raw */ }
+          resolve(buf.toString('utf-8'));
+        });
         r.on('error', reject);
       });
       reqObj.on('error', reject);
-      reqObj.setTimeout(10000, () => { reqObj.destroy(); reject(new Error('Timeout')); });
+      reqObj.setTimeout(12000, () => { reqObj.destroy(); reject(new Error('Timeout')); });
       reqObj.end();
     });
   }
@@ -72,6 +91,17 @@ router.get('/fcprice/:productId', async (req: AuthRequest, res) => {
 
   try {
     const html = await fetchUrl(url);
+
+    // Detect bot-protection / challenge pages
+    if (
+      html.length < 6000 ||
+      html.includes('_cf_chl_opt') ||
+      html.includes('cf-browser-verification') ||
+      html.includes('Enable JavaScript and cookies') ||
+      (html.includes('Just a moment') && html.includes('Cloudflare'))
+    ) {
+      return res.json({ success: false, error: 'Bot protection active — try again in a moment' });
+    }
 
     // Try 1: Next.js __NEXT_DATA__ JSON blob (most reliable for Next.js sites like FirstCry)
     const nextDataMatch = html.match(/<script[^>]+id=["']__NEXT_DATA__["'][^>]*>([\s\S]*?)<\/script>/i);
