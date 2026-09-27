@@ -115,19 +115,39 @@ router.get('/fcprice/:productId', async (req: AuthRequest, res) => {
 
     // Extract price from inside the browser's real DOM.
     // Passed as a string so TypeScript doesn't try to type-check browser globals.
-    const price: number | null = await page.evaluate(`(function() {
+    const result: { price: number | null; tried: string[] } = await page.evaluate(`(function() {
+      var tried = [];
+
       // 1. __NEXT_DATA__ script tag (Next.js SSR payload)
       var nextEl = document.getElementById('__NEXT_DATA__');
       if (nextEl && nextEl.textContent) {
         try {
           var data = JSON.parse(nextEl.textContent);
+          // Collect all numeric leaf keys for debugging
+          function collectNumericKeys(o, d, out) {
+            if (d > 12 || !o || typeof o !== 'object') return;
+            Object.keys(o).forEach(function(k) {
+              var v = Number(o[k]);
+              if (v > 10 && v < 1000000 && !isNaN(v)) out.push(k + ':' + v);
+              else if (o[k] && typeof o[k] === 'object') collectNumericKeys(o[k], d+1, out);
+            });
+          }
+          collectNumericKeys(data, 0, tried);
+
           function find(o, d) {
             if (d > 14 || !o || typeof o !== 'object') return null;
-            var keys = ['specialPrice','discountedPrice','offerPrice','salePrice','finalPrice',
-                        'selling_price','sellPrice','discountPrice','fcPrice','offer_price','sale_price'];
+            var keys = [
+              'specialPrice','discountedPrice','offerPrice','salePrice','finalPrice',
+              'selling_price','sellPrice','discountPrice','fcPrice','offer_price','sale_price',
+              'currentPrice','sellingPrice','discountedMrp','ourPrice','finalSellingPrice',
+              'net_price','customer_price','effective_price','storePrice','discountedPrice',
+              'payableAmount','productPrice','priceAfterDiscount'
+            ];
             for (var i = 0; i < keys.length; i++) {
-              var v = Number(o[keys[i]]);
-              if (v > 10 && v < 1000000) return v;
+              if (keys[i] in o) {
+                var v = Number(o[keys[i]]);
+                if (v > 10 && v < 1000000) return v;
+              }
             }
             var vals = Object.values(o);
             for (var j = 0; j < vals.length; j++) {
@@ -137,8 +157,10 @@ router.get('/fcprice/:productId', async (req: AuthRequest, res) => {
             return null;
           }
           var p = find(data, 0);
-          if (p) return p;
-        } catch(e) {}
+          if (p) return { price: p, tried: tried.slice(0,30) };
+        } catch(e) { tried.push('nextdata-parse-error'); }
+      } else {
+        tried.push('no-__NEXT_DATA__');
       }
 
       // 2. JSON-LD structured data
@@ -148,7 +170,7 @@ router.get('/fcprice/:productId', async (req: AuthRequest, res) => {
           var obj = JSON.parse(jsonLds[si].textContent || '');
           var offers = obj.offers || (Array.isArray(obj) ? obj[0] && obj[0].offers : null);
           var lp = Number((offers && (offers.price || offers.lowPrice)) || 0);
-          if (lp > 10) return lp;
+          if (lp > 10) return { price: lp, tried: tried.slice(0,30) };
         } catch(e) {}
       }
 
@@ -157,21 +179,23 @@ router.get('/fcprice/:productId', async (req: AuthRequest, res) => {
         '[class*="selling-price"]','[class*="sellingPrice"]',
         '[class*="offer-price"]','[class*="offerPrice"]',
         '[class*="discount-price"]','[class*="special-price"]',
-        '[class*="final-price"]','.product-price','#product-price'
+        '[class*="final-price"]','.product-price','#product-price',
+        '[class*="price"]'
       ];
       for (var di = 0; di < sels.length; di++) {
         var el = document.querySelector(sels[di]);
         if (el) {
-          var txt = (el.textContent || '').replace(/[\\u20b9\\u20B9₹,\\s]/g, '');
+          var txt = (el.textContent || '').replace(/[\\u20b9\\u20B9₹₹₹₹,\\s]/g, '').trim();
           var dp = parseFloat(txt);
-          if (dp > 10 && dp < 1000000) return dp;
+          if (dp > 10 && dp < 1000000) return { price: dp, tried: tried.slice(0,30) };
+          tried.push('dom-no-price:' + txt.slice(0,20));
         }
       }
 
-      return null;
+      return { price: null, tried: tried.slice(0, 30) };
     })()`);
 
-    return res.json({ success: true, price });
+    return res.json({ success: true, price: result.price, _debug: result.tried });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err?.message ?? 'Fetch failed' });
   } finally {
