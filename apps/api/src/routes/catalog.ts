@@ -10,6 +10,108 @@ const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 router.use(authenticate, storeScope);
 
+// ── FC price fetching — shared helpers ───────────────────────────────────────
+
+// Cache the Next.js buildId so we only fetch the homepage once per hour
+let _buildIdCache: string | null = null;
+let _buildIdCachedAt = 0;
+
+/** Low-level HTTP(S) fetch that follows redirects and decompresses. */
+function httpFetch(
+  targetUrl: string,
+  extraHeaders: Record<string, string> = {},
+  redirectsLeft = 5,
+): Promise<{ body: string; status: number; headers: Record<string, string> }> {
+  return new Promise((resolve, reject) => {
+    const parsed = new URL(targetUrl);
+    const lib = parsed.protocol === 'https:' ? https : http;
+    const options = {
+      hostname: parsed.hostname,
+      path: parsed.pathname + parsed.search,
+      method: 'GET',
+      headers: {
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Accept-Language': 'en-IN,en-GB;q=0.9,en;q=0.8',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Cache-Control': 'no-cache',
+        ...extraHeaders,
+      },
+    };
+    const reqObj = lib.request(options, (r) => {
+      const status = r.statusCode ?? 0;
+      if ([301, 302, 307, 308].includes(status) && r.headers.location && redirectsLeft > 0) {
+        const next = r.headers.location.startsWith('http')
+          ? r.headers.location
+          : `${parsed.protocol}//${parsed.hostname}${r.headers.location}`;
+        r.resume();
+        return resolve(httpFetch(next, extraHeaders, redirectsLeft - 1));
+      }
+      const chunks: Buffer[] = [];
+      r.on('data', (c: Buffer) => chunks.push(c));
+      r.on('end', () => {
+        const buf = Buffer.concat(chunks);
+        const enc = (r.headers['content-encoding'] ?? '').toLowerCase();
+        let body = '';
+        try {
+          if (enc === 'gzip')    body = zlib.gunzipSync(buf).toString('utf-8');
+          else if (enc === 'deflate') body = zlib.inflateSync(buf).toString('utf-8');
+          else if (enc === 'br') body = zlib.brotliDecompressSync(buf).toString('utf-8');
+          else                   body = buf.toString('utf-8');
+        } catch {
+          body = buf.toString('utf-8');
+        }
+        const respHeaders: Record<string, string> = {};
+        for (const [k, v] of Object.entries(r.headers)) {
+          if (typeof v === 'string') respHeaders[k] = v;
+          else if (Array.isArray(v)) respHeaders[k] = v.join(', ');
+        }
+        resolve({ body, status, headers: respHeaders });
+      });
+      r.on('error', reject);
+    });
+    reqObj.on('error', reject);
+    reqObj.setTimeout(14000, () => { reqObj.destroy(); reject(new Error('Timeout')); });
+    reqObj.end();
+  });
+}
+
+/** Recursively find the first positive price value in a parsed JSON object. */
+function findPriceInObj(obj: any, depth = 0): number | null {
+  if (depth > 14 || !obj || typeof obj !== 'object') return null;
+  const priceKeys = [
+    'specialPrice', 'discountedPrice', 'offerPrice', 'salePrice', 'finalPrice',
+    'selling_price', 'sellPrice', 'discountPrice', 'fcPrice', 'price', 'offer_price',
+    'sale_price', 'effective_price', 'net_price', 'customer_price',
+  ];
+  for (const key of priceKeys) {
+    if (key in obj) {
+      const v = Number(obj[key]);
+      // Price must be > 10 (avoid matching IDs / quantities) and < 1,000,000
+      if (v > 10 && v < 1_000_000) return v;
+    }
+  }
+  for (const val of Object.values(obj)) {
+    if (val && typeof val === 'object') {
+      const found = findPriceInObj(val, depth + 1);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+function looksLikeBotPage(html: string): boolean {
+  return (
+    html.length < 5000 ||
+    html.includes('_cf_chl_opt') ||
+    html.includes('cf-browser-verification') ||
+    html.includes('Enable JavaScript and cookies to continue') ||
+    html.includes('cf_chl_prog') ||
+    (html.includes('Just a moment') && html.includes('Cloudflare')) ||
+    (html.includes('Checking your browser') && html.length < 15000)
+  );
+}
+
 // ── GET /catalog/fcprice/:productId — live price proxy from FirstCry ──────────
 router.get('/fcprice/:productId', async (req: AuthRequest, res) => {
   const { productId } = req.params;
@@ -17,157 +119,166 @@ router.get('/fcprice/:productId', async (req: AuthRequest, res) => {
     return res.status(400).json({ success: false, error: 'Invalid productId' });
   }
 
-  const url = `https://www.firstcry.com/p-${productId}`;
-
-  function fetchUrl(targetUrl: string, redirectsLeft = 5): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const parsed = new URL(targetUrl);
-      const lib = parsed.protocol === 'https:' ? https : http;
-      const options = {
-        hostname: parsed.hostname,
-        path: parsed.pathname + parsed.search,
-        method: 'GET',
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-          'Accept-Language': 'en-IN,en-GB;q=0.9,en;q=0.8',
-          'Accept-Encoding': 'gzip, deflate, br',
-          'Cache-Control': 'no-cache',
-          'Pragma': 'no-cache',
-          'Upgrade-Insecure-Requests': '1',
-          'Sec-Fetch-Dest': 'document',
-          'Sec-Fetch-Mode': 'navigate',
-          'Sec-Fetch-Site': 'none',
-          'Sec-Fetch-User': '?1',
-        },
-      };
-      const reqObj = lib.request(options, (r) => {
-        if ([301,302,307,308].includes(r.statusCode ?? 0) && r.headers.location && redirectsLeft > 0) {
-          const next = r.headers.location.startsWith('http')
-            ? r.headers.location
-            : `${parsed.protocol}//${parsed.hostname}${r.headers.location}`;
-          r.resume();
-          return resolve(fetchUrl(next, redirectsLeft - 1));
-        }
-        const chunks: Buffer[] = [];
-        r.on('data', (c: Buffer) => chunks.push(c));
-        r.on('end', () => {
-          const buf = Buffer.concat(chunks);
-          const enc = (r.headers['content-encoding'] ?? '').toLowerCase();
-          try {
-            if (enc === 'gzip')    return resolve(zlib.gunzipSync(buf).toString('utf-8'));
-            if (enc === 'deflate') return resolve(zlib.inflateSync(buf).toString('utf-8'));
-            if (enc === 'br')      return resolve(zlib.brotliDecompressSync(buf).toString('utf-8'));
-          } catch { /* fall through to raw */ }
-          resolve(buf.toString('utf-8'));
-        });
-        r.on('error', reject);
-      });
-      reqObj.on('error', reject);
-      reqObj.setTimeout(12000, () => { reqObj.destroy(); reject(new Error('Timeout')); });
-      reqObj.end();
-    });
-  }
-
-  // Helper: recursively find first positive price in parsed JSON
-  function findPriceInObj(obj: any, depth = 0): number | null {
-    if (depth > 12 || !obj || typeof obj !== 'object') return null;
-    const priceKeys = ['specialPrice', 'discountedPrice', 'offerPrice', 'salePrice',
-                       'finalPrice', 'selling_price', 'sellPrice', 'discountPrice', 'fcPrice'];
-    for (const key of priceKeys) {
-      if (key in obj) {
-        const v = Number(obj[key]);
-        if (v > 0) return v;
-      }
-    }
-    for (const val of Object.values(obj)) {
-      if (val && typeof val === 'object') {
-        const found = findPriceInObj(val, depth + 1);
-        if (found) return found;
-      }
-    }
-    return null;
-  }
+  // ── Strategy 1: Next.js /_next/data/ JSON endpoint (best option) ────────────
+  // FirstCry is a Next.js app.  Every SSR page has a matching JSON data file at
+  //   /_next/data/{buildId}/{page}.json
+  // This JSON endpoint is NOT behind a JS-challenge bot guard — only the HTML
+  // page is. We fetch the homepage once per hour to grab the buildId, then call
+  // the JSON endpoint directly for the product data.
 
   try {
-    const html = await fetchUrl(url);
-
-    // Detect bot-protection / challenge pages
-    if (
-      html.length < 6000 ||
-      html.includes('_cf_chl_opt') ||
-      html.includes('cf-browser-verification') ||
-      html.includes('Enable JavaScript and cookies') ||
-      (html.includes('Just a moment') && html.includes('Cloudflare'))
-    ) {
-      return res.json({ success: false, error: 'Bot protection active — try again in a moment' });
-    }
-
-    // Try 1: Next.js __NEXT_DATA__ JSON blob (most reliable for Next.js sites like FirstCry)
-    const nextDataMatch = html.match(/<script[^>]+id=["']__NEXT_DATA__["'][^>]*>([\s\S]*?)<\/script>/i);
-    if (nextDataMatch) {
-      try {
-        const nextData = JSON.parse(nextDataMatch[1]);
-        const price = findPriceInObj(nextData);
-        if (price) return res.json({ success: true, price });
-      } catch { /* invalid JSON */ }
-    }
-
-    // Try 2: JSON-LD structured data
-    const jsonLdBlocks = html.match(/<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi) ?? [];
-    for (const block of jsonLdBlocks) {
-      const inner = block.replace(/<script[^>]*>/i, '').replace(/<\/script>/i, '');
-      try {
-        const obj = JSON.parse(inner);
-        const offers = obj.offers ?? (Array.isArray(obj) ? obj[0]?.offers : null);
-        const price = Number(offers?.price ?? offers?.lowPrice ?? 0);
-        if (price > 0) return res.json({ success: true, price });
-      } catch { /* not JSON */ }
-    }
-
-    // Try 3: Open Graph / meta price tag
-    const metaMatch = html.match(/<meta[^>]+property=["']product:price:amount["'][^>]+content=["']([0-9.]+)["']/i)
-                   || html.match(/<meta[^>]+content=["']([0-9.]+)["'][^>]+property=["']product:price:amount["']/i);
-    if (metaMatch) {
-      const price = parseFloat(metaMatch[1]);
-      if (price > 0) return res.json({ success: true, price });
-    }
-
-    // Try 4: window.__INITIAL_STATE__ / window.__STORE__ inline blobs
-    const inlineBlobs = html.match(/(?:window\.__(?:INITIAL_STATE|STORE|DATA|STATE)__|var\s+\w+)\s*=\s*(\{[\s\S]{20,12000}?\});/g) ?? [];
-    for (const blob of inlineBlobs) {
-      const start = blob.indexOf('{');
-      if (start < 0) continue;
-      try {
-        const obj = JSON.parse(blob.slice(start));
-        const price = findPriceInObj(obj);
-        if (price) return res.json({ success: true, price });
-      } catch { /* not valid */ }
-    }
-
-    // Try 5: direct regex patterns on raw HTML as last resort
-    const patterns: RegExp[] = [
-      /"specialPrice"\s*:\s*([0-9]+(?:\.[0-9]+)?)/,
-      /"discountedPrice"\s*:\s*([0-9]+(?:\.[0-9]+)?)/,
-      /"offerPrice"\s*:\s*([0-9]+(?:\.[0-9]+)?)/,
-      /"salePrice"\s*:\s*([0-9]+(?:\.[0-9]+)?)/,
-      /"sellPrice"\s*:\s*([0-9]+(?:\.[0-9]+)?)/,
-      /"finalPrice"\s*:\s*([0-9]+(?:\.[0-9]+)?)/,
-      /"selling_price"\s*:\s*([0-9]+(?:\.[0-9]+)?)/,
-      /data-price=["']([0-9]+(?:\.[0-9]+)?)["']/,
-    ];
-    for (const pat of patterns) {
-      const m = html.match(pat);
+    // Cache buildId for 1 h
+    if (!_buildIdCache || Date.now() - _buildIdCachedAt > 3_600_000) {
+      const home = await httpFetch('https://www.firstcry.com/', {
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Upgrade-Insecure-Requests': '1',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'none',
+        'Sec-Fetch-User': '?1',
+      });
+      const m = home.body.match(/"buildId"\s*:\s*"([^"]{8,80})"/);
       if (m) {
-        const price = parseFloat(m[1]);
-        if (price > 0) return res.json({ success: true, price });
+        _buildIdCache = m[1];
+        _buildIdCachedAt = Date.now();
       }
     }
 
-    return res.json({ success: true, price: null, note: 'Price not found on page' });
-  } catch (err: any) {
-    return res.status(500).json({ success: false, error: err?.message ?? 'Fetch failed' });
+    if (_buildIdCache) {
+      // Try both URL-path shapes: /p/{id} and /p-{id}
+      const pagePaths = [`p/${productId}`, `p-${productId}`];
+      for (const pp of pagePaths) {
+        try {
+          const dataUrl = `https://www.firstcry.com/_next/data/${_buildIdCache}/${pp}.json`;
+          const { body, status } = await httpFetch(dataUrl, {
+            'Accept': 'application/json, */*;q=0.8',
+            'Referer': 'https://www.firstcry.com/',
+            'Sec-Fetch-Dest': 'empty',
+            'Sec-Fetch-Mode': 'cors',
+            'Sec-Fetch-Site': 'same-origin',
+            'x-nextjs-data': '1',
+          });
+
+          if (status === 200 && body.trim().startsWith('{')) {
+            const data = JSON.parse(body);
+            const price = findPriceInObj(data);
+            if (price) return res.json({ success: true, price, via: 'nextdata' });
+          }
+        } catch { /* try next shape */ }
+      }
+    }
+  } catch { /* buildId fetch failed — fall through */ }
+
+  // ── Strategy 2: Potential internal REST API endpoints ───────────────────────
+  const apiCandidates = [
+    `https://www.firstcry.com/api/products/${productId}`,
+    `https://www.firstcry.com/api/v1/product/details?productId=${productId}`,
+    `https://www.firstcry.com/fcproductdetail?pid=${productId}&format=json`,
+  ];
+  for (const apiUrl of apiCandidates) {
+    try {
+      const { body, status } = await httpFetch(apiUrl, {
+        'Accept': 'application/json, */*;q=0.8',
+        'Referer': 'https://www.firstcry.com/',
+        'Sec-Fetch-Dest': 'empty',
+        'Sec-Fetch-Mode': 'cors',
+        'Sec-Fetch-Site': 'same-origin',
+      });
+      if (status === 200 && (body.trim().startsWith('{') || body.trim().startsWith('['))) {
+        const data = JSON.parse(body);
+        const price = findPriceInObj(data);
+        if (price) return res.json({ success: true, price, via: 'restapi' });
+      }
+    } catch { /* not a valid endpoint */ }
   }
+
+  // ── Strategy 3: HTML scrape (fallback) ──────────────────────────────────────
+  // Try both URL shapes. The short-redirect /p/{id} is the canonical one.
+  const htmlUrls = [
+    `https://www.firstcry.com/p/${productId}`,
+    `https://www.firstcry.com/p-${productId}`,
+  ];
+
+  let html = '';
+  for (const htmlUrl of htmlUrls) {
+    try {
+      const { body, status } = await httpFetch(htmlUrl, {
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+        'Upgrade-Insecure-Requests': '1',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'none',
+        'Sec-Fetch-User': '?1',
+      });
+      if (status === 200 && !looksLikeBotPage(body)) {
+        html = body;
+        break;
+      }
+    } catch { /* try next URL */ }
+  }
+
+  if (!html) {
+    return res.json({ success: false, error: 'Page unavailable — bot protection or product not found' });
+  }
+
+  // Parse extracted HTML for price data
+  // a) __NEXT_DATA__
+  const nextDataMatch = html.match(/<script[^>]+id=["']__NEXT_DATA__["'][^>]*>([\s\S]*?)<\/script>/i);
+  if (nextDataMatch) {
+    try {
+      const price = findPriceInObj(JSON.parse(nextDataMatch[1]));
+      if (price) return res.json({ success: true, price, via: 'nextdata_html' });
+    } catch { }
+  }
+
+  // b) JSON-LD
+  const jsonLdBlocks = html.match(/<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi) ?? [];
+  for (const block of jsonLdBlocks) {
+    const inner = block.replace(/<script[^>]*>/i, '').replace(/<\/script>/i, '');
+    try {
+      const obj = JSON.parse(inner);
+      const offers = obj.offers ?? (Array.isArray(obj) ? obj[0]?.offers : null);
+      const price = Number(offers?.price ?? offers?.lowPrice ?? 0);
+      if (price > 10) return res.json({ success: true, price, via: 'jsonld' });
+    } catch { }
+  }
+
+  // c) OG meta tag
+  const metaMatch =
+    html.match(/<meta[^>]+property=["']product:price:amount["'][^>]+content=["']([0-9.]+)["']/i) ||
+    html.match(/<meta[^>]+content=["']([0-9.]+)["'][^>]+property=["']product:price:amount["']/i);
+  if (metaMatch) {
+    const price = parseFloat(metaMatch[1]);
+    if (price > 10) return res.json({ success: true, price, via: 'og_meta' });
+  }
+
+  // d) window.* inline blobs
+  const inlineBlobs =
+    html.match(/(?:window\.__(?:INITIAL_STATE|STORE|DATA|STATE|FC_DATA)__|self\.__next_f)\s*=\s*(\{[\s\S]{20,20000}?\});/g) ?? [];
+  for (const blob of inlineBlobs) {
+    const start = blob.indexOf('{');
+    if (start < 0) continue;
+    try {
+      const price = findPriceInObj(JSON.parse(blob.slice(start)));
+      if (price) return res.json({ success: true, price, via: 'window_blob' });
+    } catch { }
+  }
+
+  // e) Raw regex patterns
+  const patterns: RegExp[] = [
+    /"(?:specialPrice|discountedPrice|offerPrice|salePrice|sellPrice|finalPrice|selling_price|offer_price|net_price)"\s*:\s*([0-9]+(?:\.[0-9]+)?)/,
+    /data-(?:price|offer-price|sell-price)=["']([0-9]+(?:\.[0-9]+)?)["']/,
+    /["']price["']\s*:\s*([0-9]+(?:\.[0-9]+)?)/,
+  ];
+  for (const pat of patterns) {
+    const m = html.match(pat);
+    if (m) {
+      const price = parseFloat(m[1]);
+      if (price > 10 && price < 1_000_000) return res.json({ success: true, price, via: 'regex' });
+    }
+  }
+
+  return res.json({ success: true, price: null, note: 'Price not found on page' });
 });
 
 // ── CSV Parser ──────────────────────────────────────────────────────────────
