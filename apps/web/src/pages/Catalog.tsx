@@ -1,4 +1,4 @@
-import React, { useRef, useState, useCallback } from 'react';
+import React, { useRef, useState, useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useFetch } from '../hooks/useFetch';
 import { api } from '../lib/api';
@@ -51,6 +51,37 @@ export default function Catalog() {
   const [searching, setSearching] = useState(false);
   const [searchMsg, setSearchMsg] = useState<string | null>(null);
   const [highlightProductId, setHighlightProductId] = useState<string | null>(null);
+
+  // FC Live Price state: productId → 'loading' | 'error' | number | null
+  const [fcPrices, setFcPrices] = useState<Record<string, 'loading' | 'error' | number | null>>({});
+  const [fetchingAll, setFetchingAll] = useState(false);
+
+  // Reset FC prices when subcategory/products change
+  useEffect(() => { setFcPrices({}); setFetchingAll(false); }, [artUrl]);
+
+  async function fetchFcPrice(productId: string) {
+    if (!productId || !/^\d+$/.test(productId)) return;
+    setFcPrices(prev => ({ ...prev, [productId]: 'loading' }));
+    try {
+      const res = await api.get(`/catalog/fcprice/${productId}`);
+      const price = res.data?.price;
+      setFcPrices(prev => ({ ...prev, [productId]: price !== undefined ? price : null }));
+    } catch {
+      setFcPrices(prev => ({ ...prev, [productId]: 'error' }));
+    }
+  }
+
+  async function fetchAllPrices() {
+    if (fetchingAll || artProducts.length === 0) return;
+    setFetchingAll(true);
+    for (const p of artProducts) {
+      if (!p.productId || !/^\d+$/.test(p.productId)) continue;
+      await fetchFcPrice(p.productId);
+      // Small delay to avoid hammering the site
+      await new Promise(r => setTimeout(r, 400));
+    }
+    setFetchingAll(false);
+  }
 
   const { data: latestReport } = useFetch<InvReport | null>('/catalog/inventory/latest', { _tick: tick });
   const { data: activeAudits, refetch: refetchAudits } = useFetch<Array<{ id: string; category: string; subcategory: string; startedAt: string }>>('/audits/active-list', { _tick: tick });
@@ -390,65 +421,114 @@ export default function Catalog() {
                 No products found. Upload the stock CSV to populate the catalog.
               </div>
             ) : (
-              <div className="tbl-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th style={{ width: 70 }}></th>
-                      <th style={{ width: 100 }}>Id</th>
-                      <th>Product Name</th>
-                      <th style={{ textAlign: 'right' }}>Available Quantity</th>
-                      <th style={{ textAlign: 'right' }}>MRP</th>
-                      <th style={{ textAlign: 'right' }}>CTC</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {artProducts.map((p) => {
-                      const fcId = p.fcId || p.productId;
-                      const isHighlighted = highlightProductId && p.productId === highlightProductId;
-                      return (
-                        <tr key={p.id} style={isHighlighted ? { background: 'rgba(251,191,36,0.18)', outline: '2px solid #f59e0b' } : undefined} ref={isHighlighted ? (el => el?.scrollIntoView({ behavior: 'smooth', block: 'center' })) : undefined}>
-                          {/* Product image */}
-                          <td style={{ padding: '8px 10px' }}>
-                            <ProductImage productId={p.productId} size={56} />
-                          </td>
-                          {/* FC Id */}
-                          <td style={{ fontSize: 12, color: 'var(--text2)', verticalAlign: 'top', paddingTop: 12 }}>{fcId}</td>
-                          {/* Product name + subtitle */}
-                          <td style={{ verticalAlign: 'top', paddingTop: 10 }}>
-                            <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--text1)', lineHeight: 1.3 }}>{p.productName}</div>
-                            {(p.brand || p.age || p.gender) && (
-                              <div style={{ fontSize: 11, color: 'var(--text2)', marginTop: 3 }}>
-                                {[p.brand, p.age, p.gender].filter(Boolean).join(' · ')}
-                              </div>
-                            )}
-                          </td>
-                          {/* Available Qty */}
-                          <td style={{ textAlign: 'right', fontWeight: 700, verticalAlign: 'top', paddingTop: 12 }}>
-                            {fmtQty(p.quantity)} Pcs
-                          </td>
-                          {/* MRP */}
-                          <td style={{ textAlign: 'right', verticalAlign: 'top', paddingTop: 12 }}>
-                            {fmtRs(p.mrp)}
-                          </td>
-                          {/* CTC */}
-                          <td style={{ textAlign: 'right', verticalAlign: 'top', paddingTop: 12 }}>
-                            {fmtRs(p.ctc)}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                  <tfoot>
-                    <tr style={{ background: 'var(--bg2)', fontWeight: 600 }}>
-                      <td colSpan={3} style={{ textAlign: 'right', fontSize: 12, color: 'var(--text2)', paddingRight: 12 }}>Grand Total ({artProducts.length} products)</td>
-                      <td style={{ textAlign: 'right', fontWeight: 700 }}>{fmtQty(artTotalQty)} Pcs</td>
-                      <td style={{ textAlign: 'right', fontWeight: 700 }}>{fmtRs(artTotalMrp)}</td>
-                      <td style={{ textAlign: 'right', fontWeight: 700 }}>{fmtRs(artTotalCtc)}</td>
-                    </tr>
-                  </tfoot>
-                </table>
-              </div>
+              <>
+                {/* Fetch All bar */}
+                <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                  <span style={{ fontSize: 12, color: 'var(--text2)' }}>
+                    {fetchingAll ? `⟳ Fetching live prices… (${Object.values(fcPrices).filter(v => v !== 'loading').length}/${artProducts.length})` : 'FC Live Price — fetches current discount price from FirstCry.com'}
+                  </span>
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    disabled={fetchingAll}
+                    onClick={fetchAllPrices}
+                    style={{ fontSize: 12, whiteSpace: 'nowrap' }}
+                  >
+                    {fetchingAll ? '⟳ Fetching…' : '🔄 Fetch All Prices'}
+                  </button>
+                </div>
+                <div className="tbl-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th style={{ width: 70 }}></th>
+                        <th style={{ width: 100 }}>Id</th>
+                        <th>Product Name</th>
+                        <th style={{ textAlign: 'right' }}>Available Quantity</th>
+                        <th style={{ textAlign: 'right' }}>MRP</th>
+                        <th style={{ textAlign: 'right' }}>CTC</th>
+                        <th style={{ textAlign: 'right', minWidth: 110 }}>FC Live Price</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {artProducts.map((p) => {
+                        const fcId = p.fcId || p.productId;
+                        const isHighlighted = highlightProductId && p.productId === highlightProductId;
+                        const priceState = fcPrices[p.productId];
+                        const hasNumericId = /^\d+$/.test(p.productId);
+                        return (
+                          <tr key={p.id} style={isHighlighted ? { background: 'rgba(251,191,36,0.18)', outline: '2px solid #f59e0b' } : undefined} ref={isHighlighted ? (el => el?.scrollIntoView({ behavior: 'smooth', block: 'center' })) : undefined}>
+                            {/* Product image */}
+                            <td style={{ padding: '8px 10px' }}>
+                              <ProductImage productId={p.productId} size={56} />
+                            </td>
+                            {/* FC Id */}
+                            <td style={{ fontSize: 12, color: 'var(--text2)', verticalAlign: 'top', paddingTop: 12 }}>{fcId}</td>
+                            {/* Product name + subtitle */}
+                            <td style={{ verticalAlign: 'top', paddingTop: 10 }}>
+                              <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--text1)', lineHeight: 1.3 }}>{p.productName}</div>
+                              {(p.brand || p.age || p.gender) && (
+                                <div style={{ fontSize: 11, color: 'var(--text2)', marginTop: 3 }}>
+                                  {[p.brand, p.age, p.gender].filter(Boolean).join(' · ')}
+                                </div>
+                              )}
+                            </td>
+                            {/* Available Qty */}
+                            <td style={{ textAlign: 'right', fontWeight: 700, verticalAlign: 'top', paddingTop: 12 }}>
+                              {fmtQty(p.quantity)} Pcs
+                            </td>
+                            {/* MRP */}
+                            <td style={{ textAlign: 'right', verticalAlign: 'top', paddingTop: 12 }}>
+                              {fmtRs(p.mrp)}
+                            </td>
+                            {/* CTC */}
+                            <td style={{ textAlign: 'right', verticalAlign: 'top', paddingTop: 12 }}>
+                              {fmtRs(p.ctc)}
+                            </td>
+                            {/* FC Live Price */}
+                            <td style={{ textAlign: 'right', verticalAlign: 'top', paddingTop: 10 }}>
+                              {!hasNumericId ? (
+                                <span style={{ fontSize: 11, color: 'var(--text3)' }}>N/A</span>
+                              ) : priceState === 'loading' ? (
+                                <span style={{ fontSize: 12, color: 'var(--text2)' }}>⟳</span>
+                              ) : priceState === 'error' ? (
+                                <span style={{ fontSize: 11, color: 'var(--red)', cursor: 'pointer' }} title="Click to retry" onClick={() => fetchFcPrice(p.productId)}>✗ retry</span>
+                              ) : typeof priceState === 'number' ? (
+                                <span style={{ fontWeight: 700, fontSize: 14, color: priceState < p.mrp ? 'var(--green)' : 'var(--text1)', fontVariantNumeric: 'tabular-nums' }}>
+                                  {fmtRs(priceState)}
+                                  {priceState < p.mrp && (
+                                    <div style={{ fontSize: 10, color: 'var(--green)', fontWeight: 500 }}>
+                                      {Math.round((1 - priceState / p.mrp) * 100)}% off MRP
+                                    </div>
+                                  )}
+                                </span>
+                              ) : priceState === null ? (
+                                <span style={{ fontSize: 11, color: 'var(--text3)' }}>Not found</span>
+                              ) : (
+                                <button
+                                  style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 4, cursor: 'pointer', fontSize: 11, color: 'var(--text2)', padding: '3px 7px' }}
+                                  disabled={fetchingAll}
+                                  onClick={() => fetchFcPrice(p.productId)}
+                                >
+                                  🔄
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                    <tfoot>
+                      <tr style={{ background: 'var(--bg2)', fontWeight: 600 }}>
+                        <td colSpan={3} style={{ textAlign: 'right', fontSize: 12, color: 'var(--text2)', paddingRight: 12 }}>Grand Total ({artProducts.length} products)</td>
+                        <td style={{ textAlign: 'right', fontWeight: 700 }}>{fmtQty(artTotalQty)} Pcs</td>
+                        <td style={{ textAlign: 'right', fontWeight: 700 }}>{fmtRs(artTotalMrp)}</td>
+                        <td style={{ textAlign: 'right', fontWeight: 700 }}>{fmtRs(artTotalCtc)}</td>
+                        <td></td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              </>
             )}
           </div>
         </>
