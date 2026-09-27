@@ -1,11 +1,103 @@
 import { Router } from 'express';
 import multer from 'multer';
+import https from 'https';
+import http from 'http';
 import { query, uid } from '../lib/db';
 import { authenticate, storeScope, AuthRequest } from '../middleware/auth';
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 router.use(authenticate, storeScope);
+
+// ── GET /catalog/fcprice/:productId — live price proxy from FirstCry ──────────
+router.get('/fcprice/:productId', async (req: AuthRequest, res) => {
+  const { productId } = req.params;
+  if (!productId || !/^\d+$/.test(productId)) {
+    return res.status(400).json({ success: false, error: 'Invalid productId' });
+  }
+
+  const url = `https://www.firstcry.com/p-${productId}`;
+
+  function fetchUrl(targetUrl: string, redirectsLeft = 4): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const parsed = new URL(targetUrl);
+      const lib = parsed.protocol === 'https:' ? https : http;
+      const options = {
+        hostname: parsed.hostname,
+        path: parsed.pathname + parsed.search,
+        method: 'GET',
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'en-IN,en;q=0.5',
+          'Cache-Control': 'no-cache',
+        },
+      };
+      const reqObj = lib.request(options, (r) => {
+        if ((r.statusCode === 301 || r.statusCode === 302 || r.statusCode === 307 || r.statusCode === 308) && r.headers.location && redirectsLeft > 0) {
+          const next = r.headers.location.startsWith('http') ? r.headers.location : `${parsed.protocol}//${parsed.hostname}${r.headers.location}`;
+          r.resume();
+          return resolve(fetchUrl(next, redirectsLeft - 1));
+        }
+        const chunks: Buffer[] = [];
+        r.on('data', (c: Buffer) => chunks.push(c));
+        r.on('end', () => resolve(Buffer.concat(chunks).toString('utf-8')));
+        r.on('error', reject);
+      });
+      reqObj.on('error', reject);
+      reqObj.setTimeout(10000, () => { reqObj.destroy(); reject(new Error('Timeout')); });
+      reqObj.end();
+    });
+  }
+
+  try {
+    const html = await fetchUrl(url);
+
+    // Try 1: Open Graph / meta price tag
+    const metaMatch = html.match(/<meta[^>]+property=["']product:price:amount["'][^>]+content=["']([0-9.]+)["']/i)
+                   || html.match(/<meta[^>]+content=["']([0-9.]+)["'][^>]+property=["']product:price:amount["']/i);
+    if (metaMatch) {
+      const price = parseFloat(metaMatch[1]);
+      if (price > 0) return res.json({ success: true, price });
+    }
+
+    // Try 2: JSON-LD structured data
+    const jsonLdMatch = html.match(/<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi);
+    if (jsonLdMatch) {
+      for (const block of jsonLdMatch) {
+        const inner = block.replace(/<script[^>]*>/, '').replace(/<\/script>/, '');
+        try {
+          const obj = JSON.parse(inner);
+          const offers = obj.offers ?? (Array.isArray(obj) ? obj[0]?.offers : null);
+          const price = offers?.price ?? offers?.lowPrice;
+          if (price && Number(price) > 0) return res.json({ success: true, price: Number(price) });
+        } catch { /* not valid JSON */ }
+      }
+    }
+
+    // Try 3: inline JS variable patterns
+    const patterns = [
+      /"specialPrice"\s*:\s*([0-9.]+)/,
+      /"discountedPrice"\s*:\s*([0-9.]+)/,
+      /"finalPrice"\s*:\s*([0-9.]+)/,
+      /"selling_price"\s*:\s*([0-9.]+)/,
+      /"salePrice"\s*:\s*([0-9.]+)/,
+      /data-price=["']([0-9.]+)["']/,
+      /"price"\s*:\s*"([0-9.]+)"/,
+    ];
+    for (const pat of patterns) {
+      const m = html.match(pat);
+      if (m) {
+        const price = parseFloat(m[1]);
+        if (price > 0) return res.json({ success: true, price });
+      }
+    }
+
+    return res.json({ success: true, price: null, note: 'Price not found on page' });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message ?? 'Fetch failed' });
+  }
+});
 
 // ── CSV Parser ──────────────────────────────────────────────────────────────
 // Supports two CSV formats:
