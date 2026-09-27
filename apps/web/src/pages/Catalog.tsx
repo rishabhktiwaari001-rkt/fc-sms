@@ -57,7 +57,7 @@ export default function Catalog() {
   const [fetchingAll, setFetchingAll] = useState(false);
 
   // Reset FC prices when subcategory/products change
-  useEffect(() => { setFcPrices({}); setFetchingAll(false); }, [artUrl]);
+  useEffect(() => { setFcPrices({}); setFetchingAll(false); }, [selCategory, selSubcategory]);
 
   async function fetchFcPrice(productId: string) {
     if (!productId || !/^\d+$/.test(productId)) return;
