@@ -50,10 +50,52 @@ router.get('/fcprice/:productId', async (req: AuthRequest, res) => {
     });
   }
 
+  // Helper: recursively find first positive price in parsed JSON
+  function findPriceInObj(obj: any, depth = 0): number | null {
+    if (depth > 12 || !obj || typeof obj !== 'object') return null;
+    const priceKeys = ['specialPrice', 'discountedPrice', 'offerPrice', 'salePrice',
+                       'finalPrice', 'selling_price', 'sellPrice', 'discountPrice', 'fcPrice'];
+    for (const key of priceKeys) {
+      if (key in obj) {
+        const v = Number(obj[key]);
+        if (v > 0) return v;
+      }
+    }
+    for (const val of Object.values(obj)) {
+      if (val && typeof val === 'object') {
+        const found = findPriceInObj(val, depth + 1);
+        if (found) return found;
+      }
+    }
+    return null;
+  }
+
   try {
     const html = await fetchUrl(url);
 
-    // Try 1: Open Graph / meta price tag
+    // Try 1: Next.js __NEXT_DATA__ JSON blob (most reliable for Next.js sites like FirstCry)
+    const nextDataMatch = html.match(/<script[^>]+id=["']__NEXT_DATA__["'][^>]*>([\s\S]*?)<\/script>/i);
+    if (nextDataMatch) {
+      try {
+        const nextData = JSON.parse(nextDataMatch[1]);
+        const price = findPriceInObj(nextData);
+        if (price) return res.json({ success: true, price });
+      } catch { /* invalid JSON */ }
+    }
+
+    // Try 2: JSON-LD structured data
+    const jsonLdBlocks = html.match(/<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi) ?? [];
+    for (const block of jsonLdBlocks) {
+      const inner = block.replace(/<script[^>]*>/i, '').replace(/<\/script>/i, '');
+      try {
+        const obj = JSON.parse(inner);
+        const offers = obj.offers ?? (Array.isArray(obj) ? obj[0]?.offers : null);
+        const price = Number(offers?.price ?? offers?.lowPrice ?? 0);
+        if (price > 0) return res.json({ success: true, price });
+      } catch { /* not JSON */ }
+    }
+
+    // Try 3: Open Graph / meta price tag
     const metaMatch = html.match(/<meta[^>]+property=["']product:price:amount["'][^>]+content=["']([0-9.]+)["']/i)
                    || html.match(/<meta[^>]+content=["']([0-9.]+)["'][^>]+property=["']product:price:amount["']/i);
     if (metaMatch) {
@@ -61,29 +103,28 @@ router.get('/fcprice/:productId', async (req: AuthRequest, res) => {
       if (price > 0) return res.json({ success: true, price });
     }
 
-    // Try 2: JSON-LD structured data
-    const jsonLdMatch = html.match(/<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi);
-    if (jsonLdMatch) {
-      for (const block of jsonLdMatch) {
-        const inner = block.replace(/<script[^>]*>/, '').replace(/<\/script>/, '');
-        try {
-          const obj = JSON.parse(inner);
-          const offers = obj.offers ?? (Array.isArray(obj) ? obj[0]?.offers : null);
-          const price = offers?.price ?? offers?.lowPrice;
-          if (price && Number(price) > 0) return res.json({ success: true, price: Number(price) });
-        } catch { /* not valid JSON */ }
-      }
+    // Try 4: window.__INITIAL_STATE__ / window.__STORE__ inline blobs
+    const inlineBlobs = html.match(/(?:window\.__(?:INITIAL_STATE|STORE|DATA|STATE)__|var\s+\w+)\s*=\s*(\{[\s\S]{20,12000}?\});/g) ?? [];
+    for (const blob of inlineBlobs) {
+      const start = blob.indexOf('{');
+      if (start < 0) continue;
+      try {
+        const obj = JSON.parse(blob.slice(start));
+        const price = findPriceInObj(obj);
+        if (price) return res.json({ success: true, price });
+      } catch { /* not valid */ }
     }
 
-    // Try 3: inline JS variable patterns
-    const patterns = [
-      /"specialPrice"\s*:\s*([0-9.]+)/,
-      /"discountedPrice"\s*:\s*([0-9.]+)/,
-      /"finalPrice"\s*:\s*([0-9.]+)/,
-      /"selling_price"\s*:\s*([0-9.]+)/,
-      /"salePrice"\s*:\s*([0-9.]+)/,
-      /data-price=["']([0-9.]+)["']/,
-      /"price"\s*:\s*"([0-9.]+)"/,
+    // Try 5: direct regex patterns on raw HTML as last resort
+    const patterns: RegExp[] = [
+      /"specialPrice"\s*:\s*([0-9]+(?:\.[0-9]+)?)/,
+      /"discountedPrice"\s*:\s*([0-9]+(?:\.[0-9]+)?)/,
+      /"offerPrice"\s*:\s*([0-9]+(?:\.[0-9]+)?)/,
+      /"salePrice"\s*:\s*([0-9]+(?:\.[0-9]+)?)/,
+      /"sellPrice"\s*:\s*([0-9]+(?:\.[0-9]+)?)/,
+      /"finalPrice"\s*:\s*([0-9]+(?:\.[0-9]+)?)/,
+      /"selling_price"\s*:\s*([0-9]+(?:\.[0-9]+)?)/,
+      /data-price=["']([0-9]+(?:\.[0-9]+)?)["']/,
     ];
     for (const pat of patterns) {
       const m = html.match(pat);
