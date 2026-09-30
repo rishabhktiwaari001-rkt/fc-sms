@@ -6,9 +6,6 @@ RUN apk add --no-cache python3 make g++
 
 WORKDIR /app
 
-# Skip Puppeteer's bundled Chromium (glibc binary — won't run on Alpine musl)
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
-
 # Copy workspace root manifests first (layer cache)
 COPY package.json package-lock.json ./
 COPY apps/api/package.json        ./apps/api/
@@ -27,15 +24,8 @@ RUN npm run build
 # ── Runtime stage ─────────────────────────────────────────────────────────────
 FROM node:22-alpine AS runtime
 
-# Runtime deps for better-sqlite3 + Alpine-native Chromium for Puppeteer
-RUN apk add --no-cache \
-    libstdc++ \
-    chromium \
-    nss \
-    freetype \
-    harfbuzz \
-    ca-certificates \
-    ttf-freefont
+# Runtime deps for better-sqlite3
+RUN apk add --no-cache libstdc++
 
 WORKDIR /app
 
@@ -50,9 +40,6 @@ RUN mkdir -p /data
 
 ENV NODE_ENV=production
 ENV PORT=4000
-# Point Puppeteer to Alpine's system Chromium (musl-compatible)
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
-ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
 EXPOSE 4000
 
 CMD ["node", "apps/api/dist/index.js"]
