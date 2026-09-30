@@ -1,9 +1,5 @@
 import { Router } from 'express';
 import multer from 'multer';
-import https from 'https';
-import http from 'http';
-import zlib from 'zlib';
-import puppeteer, { Browser } from 'puppeteer';
 import { query, uid } from '../lib/db';
 import { authenticate, storeScope, AuthRequest } from '../middleware/auth';
 
@@ -11,46 +7,17 @@ const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 router.use(authenticate, storeScope);
 
-// ── Puppeteer browser pool (single shared browser for all requests) ───────────
-let _browser: Browser | null = null;
-
-async function getBrowser(): Promise<Browser> {
-  if (_browser && _browser.connected) return _browser;
-  _browser = await puppeteer.launch({
-    headless: true,
-    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-      '--disable-accelerated-2d-canvas',
-      '--no-first-run',
-      '--no-zygote',
-      '--disable-gpu',
-      '--disable-background-networking',
-      '--disable-default-apps',
-      '--disable-extensions',
-      '--disable-sync',
-      '--disable-translate',
-      '--metrics-recording-only',
-      '--mute-audio',
-      '--no-default-browser-check',
-      '--safebrowsing-disable-auto-update',
-    ],
-  });
-  _browser.on('disconnected', () => { _browser = null; });
-  return _browser;
-}
-
-/** Recursively find the first positive price value in a parsed JSON object. */
+// ── Recursive price finder in parsed __NEXT_DATA__ ───────────────────────────
 function findPriceInObj(obj: any, depth = 0): number | null {
   if (depth > 14 || !obj || typeof obj !== 'object') return null;
-  const priceKeys = [
+  const keys = [
     'specialPrice', 'discountedPrice', 'offerPrice', 'salePrice', 'finalPrice',
-    'selling_price', 'sellPrice', 'discountPrice', 'fcPrice', 'price', 'offer_price',
-    'sale_price', 'effective_price', 'net_price', 'customer_price',
+    'selling_price', 'sellPrice', 'discountPrice', 'fcPrice', 'offer_price', 'sale_price',
+    'currentPrice', 'sellingPrice', 'discountedMrp', 'ourPrice', 'finalSellingPrice',
+    'net_price', 'customer_price', 'effective_price', 'storePrice',
+    'payableAmount', 'productPrice', 'priceAfterDiscount',
   ];
-  for (const key of priceKeys) {
+  for (const key of keys) {
     if (key in obj) {
       const v = Number(obj[key]);
       if (v > 10 && v < 1_000_000) return v;
@@ -65,144 +32,60 @@ function findPriceInObj(obj: any, depth = 0): number | null {
   return null;
 }
 
-// ── GET /catalog/fcprice/:productId — live price proxy from FirstCry ──────────
+// ── GET /catalog/fcprice/:productId — live price via ScraperAPI ───────────────
 router.get('/fcprice/:productId', async (req: AuthRequest, res) => {
   const { productId } = req.params;
   if (!productId || !/^\d+$/.test(productId)) {
     return res.status(400).json({ success: false, error: 'Invalid productId' });
   }
 
-  let page: any = null;
-  try {
-    const browser = await getBrowser();
-    page = await browser.newPage();
+  const apiKey = process.env.SCRAPER_API_KEY;
+  if (!apiKey) {
+    return res.status(500).json({ success: false, error: 'SCRAPER_API_KEY env var not set' });
+  }
 
-    // Block images/fonts/media to load page faster
-    await page.setRequestInterception(true);
-    page.on('request', (req: any) => {
-      const type = req.resourceType();
-      if (['image', 'font', 'media', 'stylesheet'].includes(type)) req.abort();
-      else req.continue();
-    });
+  const fcUrls = [
+    `https://www.firstcry.com/p/${productId}`,
+    `https://www.firstcry.com/p-${productId}`,
+  ];
 
-    await page.setUserAgent(
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
-    );
-    await page.setExtraHTTPHeaders({
-      'Accept-Language': 'en-IN,en-GB;q=0.9,en;q=0.8',
-    });
+  for (const fcUrl of fcUrls) {
+    try {
+      const scraperUrl = `https://api.scraperapi.com?api_key=${apiKey}&url=${encodeURIComponent(fcUrl)}&country_code=in`;
+      const response = await fetch(scraperUrl, {
+        signal: AbortSignal.timeout(30_000),
+        headers: { 'Accept-Language': 'en-IN,en-GB;q=0.9,en;q=0.8' },
+      });
 
-    // Navigate — try /p/{id} first (slash format), fall back to /p-{id}
-    const urls = [
-      `https://www.firstcry.com/p/${productId}`,
-      `https://www.firstcry.com/p-${productId}`,
-    ];
+      if (!response.ok) continue;
 
-    let loaded = false;
-    for (const url of urls) {
-      try {
-        const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 20000 });
-        if (response && response.status() < 400) { loaded = true; break; }
-      } catch { /* try next */ }
-    }
+      const html = await response.text();
+      if (html.length < 2000) continue; // bot-challenge / empty page
 
-    if (!loaded) {
-      return res.json({ success: false, error: 'Product page not reachable' });
-    }
-
-    // Wait a moment for any JS hydration
-    await new Promise(r => setTimeout(r, 1500));
-
-    // Extract price from inside the browser's real DOM.
-    // Passed as a string so TypeScript doesn't try to type-check browser globals.
-    const result: { price: number | null; tried: string[] } = await page.evaluate(`(function() {
-      var tried = [];
-
-      // 1. __NEXT_DATA__ script tag (Next.js SSR payload)
-      var nextEl = document.getElementById('__NEXT_DATA__');
-      if (nextEl && nextEl.textContent) {
+      // 1. __NEXT_DATA__ JSON blob (Next.js SSR — most reliable)
+      const ndMatch = html.match(/<script[^>]+id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
+      if (ndMatch) {
         try {
-          var data = JSON.parse(nextEl.textContent);
-          // Collect all numeric leaf keys for debugging
-          function collectNumericKeys(o, d, out) {
-            if (d > 12 || !o || typeof o !== 'object') return;
-            Object.keys(o).forEach(function(k) {
-              var v = Number(o[k]);
-              if (v > 10 && v < 1000000 && !isNaN(v)) out.push(k + ':' + v);
-              else if (o[k] && typeof o[k] === 'object') collectNumericKeys(o[k], d+1, out);
-            });
-          }
-          collectNumericKeys(data, 0, tried);
-
-          function find(o, d) {
-            if (d > 14 || !o || typeof o !== 'object') return null;
-            var keys = [
-              'specialPrice','discountedPrice','offerPrice','salePrice','finalPrice',
-              'selling_price','sellPrice','discountPrice','fcPrice','offer_price','sale_price',
-              'currentPrice','sellingPrice','discountedMrp','ourPrice','finalSellingPrice',
-              'net_price','customer_price','effective_price','storePrice','discountedPrice',
-              'payableAmount','productPrice','priceAfterDiscount'
-            ];
-            for (var i = 0; i < keys.length; i++) {
-              if (keys[i] in o) {
-                var v = Number(o[keys[i]]);
-                if (v > 10 && v < 1000000) return v;
-              }
-            }
-            var vals = Object.values(o);
-            for (var j = 0; j < vals.length; j++) {
-              var r = find(vals[j], d + 1);
-              if (r) return r;
-            }
-            return null;
-          }
-          var p = find(data, 0);
-          if (p) return { price: p, tried: tried.slice(0,30) };
-        } catch(e) { tried.push('nextdata-parse-error'); }
-      } else {
-        tried.push('no-__NEXT_DATA__');
+          const data = JSON.parse(ndMatch[1]);
+          const price = findPriceInObj(data);
+          if (price) return res.json({ success: true, price });
+        } catch { /* malformed JSON */ }
       }
 
       // 2. JSON-LD structured data
-      var jsonLds = document.querySelectorAll('script[type="application/ld+json"]');
-      for (var si = 0; si < jsonLds.length; si++) {
+      const ldMatches = html.matchAll(/<script[^>]+type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/g);
+      for (const m of ldMatches) {
         try {
-          var obj = JSON.parse(jsonLds[si].textContent || '');
-          var offers = obj.offers || (Array.isArray(obj) ? obj[0] && obj[0].offers : null);
-          var lp = Number((offers && (offers.price || offers.lowPrice)) || 0);
-          if (lp > 10) return { price: lp, tried: tried.slice(0,30) };
-        } catch(e) {}
+          const obj = JSON.parse(m[1]);
+          const offers = obj.offers ?? (Array.isArray(obj) ? obj[0]?.offers : null);
+          const lp = Number(offers?.price ?? offers?.lowPrice ?? 0);
+          if (lp > 10) return res.json({ success: true, price: lp });
+        } catch { /* skip */ }
       }
-
-      // 3. DOM price elements
-      var sels = [
-        '[class*="selling-price"]','[class*="sellingPrice"]',
-        '[class*="offer-price"]','[class*="offerPrice"]',
-        '[class*="discount-price"]','[class*="special-price"]',
-        '[class*="final-price"]','.product-price','#product-price',
-        '[class*="price"]'
-      ];
-      for (var di = 0; di < sels.length; di++) {
-        var el = document.querySelector(sels[di]);
-        if (el) {
-          var txt = (el.textContent || '').replace(/[\\u20b9\\u20B9₹₹₹₹,\\s]/g, '').trim();
-          var dp = parseFloat(txt);
-          if (dp > 10 && dp < 1000000) return { price: dp, tried: tried.slice(0,30) };
-          tried.push('dom-no-price:' + txt.slice(0,20));
-        }
-      }
-
-      return { price: null, tried: tried.slice(0, 30) };
-    })()`);
-
-    return res.json({ success: true, price: result.price, _debug: result.tried });
-  } catch (err: any) {
-    return res.status(500).json({ success: false, error: err?.message ?? 'Fetch failed' });
-  } finally {
-    if (page) {
-      try { await page.close(); } catch { /* ignore */ }
-    }
+    } catch { /* try next URL */ }
   }
+
+  return res.json({ success: true, price: null });
 });
 
 // ── CSV Parser ──────────────────────────────────────────────────────────────
