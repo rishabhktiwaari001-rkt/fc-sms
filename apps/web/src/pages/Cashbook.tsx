@@ -418,24 +418,24 @@ export default function Cashbook() {
                       </td>
                     </tr>
                   )}
-                  {/* PRIMARY: Cash in Hand = denom − deposit (auto-updates when deposit changes) */}
+                  {/* PRIMARY: Cash in Hand = counted notes/coins (deposit already separate) */}
                   <tr style={{ background:'var(--bg2)', fontWeight:700, borderTop:'2px solid var(--border)' }}>
                     <td colSpan={2} style={{ padding:'8px 4px', fontSize:13 }}>💵 Cash in Hand</td>
                     <td style={{ padding:'8px 4px', textAlign:'right', fontSize:15, color:'#b45309' }}>
-                      {fmtRs(denomCash - (form.depositAmount || 0))}
+                      {fmtRs(denomCash)}
                     </td>
                   </tr>
                   {/* vs. Expected Closing comparison */}
-                  {Math.abs((denomCash - (form.depositAmount || 0)) - closingCash) > 0.01 && (
-                    <tr style={{ color: (denomCash - (form.depositAmount || 0)) >= closingCash ? 'var(--green)' : 'var(--red)' }}>
+                  {Math.abs(denomCash - closingCash) > 0.01 && (
+                    <tr style={{ color: denomCash >= closingCash ? 'var(--green)' : 'var(--red)' }}>
                       <td colSpan={2} style={{ padding:'4px 4px', fontSize:11 }}>vs. Expected Closing</td>
                       <td style={{ padding:'4px 4px', textAlign:'right', fontSize:12, fontWeight:600 }}>
-                        {(denomCash - (form.depositAmount || 0)) >= closingCash ? '+' : ''}
-                        {fmtRs((denomCash - (form.depositAmount || 0)) - closingCash)}
+                        {denomCash >= closingCash ? '+' : ''}
+                        {fmtRs(denomCash - closingCash)}
                       </td>
                     </tr>
                   )}
-                  {Math.abs((denomCash - (form.depositAmount || 0)) - closingCash) <= 0.01 && denomCash > 0 && (
+                  {Math.abs(denomCash - closingCash) <= 0.01 && denomCash > 0 && (
                     <tr style={{ color:'var(--green)' }}>
                       <td colSpan={2} style={{ padding:'4px 4px', fontSize:11 }}>vs. Expected Closing</td>
                       <td style={{ padding:'4px 4px', textAlign:'right', fontSize:12, fontWeight:600 }}>✓ Match</td>
