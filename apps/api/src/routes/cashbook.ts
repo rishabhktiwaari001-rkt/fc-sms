@@ -68,7 +68,13 @@ router.get('/opening', async (req: AuthRequest, res) => {
       [req.storeId!, date]
     );
     const prevEntry = prev.rows[0] ?? null;
-    const opening = prevEntry ? denomTotal(prevEntry) - (prevEntry.depositAmount || 0) : 0;
+    // Opening = previous day's denomination total (physical cash counted in register after deposit).
+    // If no denominations were entered, fall back to expected closing (opening + cash sales − deposit).
+    const dt = prevEntry ? denomTotal(prevEntry) : 0;
+    const expectedClosing = prevEntry
+      ? (prevEntry.openingCash || 0) + (prevEntry.cbCash || 0) - (prevEntry.depositAmount || 0)
+      : 0;
+    const opening = prevEntry ? (dt > 0 ? dt : expectedClosing) : 0;
     return res.json({ success: true, data: { opening, prevDate: prevEntry?.date ?? null } });
   } catch (err) {
     return res.status(500).json({ success: false, error: String(err) });
