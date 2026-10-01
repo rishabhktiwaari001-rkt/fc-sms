@@ -81,6 +81,43 @@ router.get('/opening', async (req: AuthRequest, res) => {
   }
 });
 
+// POST /cashbook/recalculate-openings — fix all stored openingCash values in sequence
+// Walks entries oldest→newest; each entry's opening = prev's denomTotal (if counted) OR prev's cashInHand
+router.post('/recalculate-openings', async (req: AuthRequest, res) => {
+  try {
+    const all = await query(
+      `SELECT * FROM "CashbookEntry" WHERE storeId=? ORDER BY date ASC`,
+      [req.storeId!]
+    );
+    const entries: any[] = all.rows;
+    if (entries.length === 0) return res.json({ success: true, updated: 0 });
+
+    let updated = 0;
+    // First entry keeps its stored opening (user-entered anchor)
+    let prevCashInHand = (entries[0].openingCash || 0) + (entries[0].cbCash || 0) - (entries[0].depositAmount || 0);
+    let prevDenom = denomTotal(entries[0]);
+
+    for (let i = 1; i < entries.length; i++) {
+      const e = entries[i];
+      // Opening = prev denom count if counted, else prev book cash-in-hand
+      const newOpening = prevDenom > 0 ? prevDenom : prevCashInHand;
+      if (Math.abs((e.openingCash || 0) - newOpening) > 0.01) {
+        await query(
+          `UPDATE "CashbookEntry" SET openingCash=?, updatedAt=datetime('now') WHERE storeId=? AND date=?`,
+          [newOpening, req.storeId!, e.date]
+        );
+        entries[i].openingCash = newOpening;
+        updated++;
+      }
+      prevCashInHand = newOpening + (e.cbCash || 0) - (e.depositAmount || 0);
+      prevDenom = denomTotal(e);
+    }
+    return res.json({ success: true, updated });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: String(err) });
+  }
+});
+
 // GET /cashbook/:date  — get single entry by date YYYY-MM-DD
 router.get('/:date', async (req: AuthRequest, res) => {
   try {
