@@ -77,6 +77,7 @@ export default function Cashbook() {
   const [history, setHistory] = useState<CashbookEntry[]>([]);
   const [historyMonth, setHistoryMonth] = useState(today().slice(0,7));
   const [histLoading, setHistLoading] = useState(false);
+  const [recalculating, setRecalculating] = useState(false);
   const [tab, setTab] = useState<'entry'|'history'>('entry');
   const [openingMode, setOpeningMode] = useState<'auto'|'manual'>('auto');
   const [autoOpening, setAutoOpening] = useState(0);
@@ -462,12 +463,28 @@ export default function Cashbook() {
         <div style={card}>
           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:14 }}>
             <div style={{ fontWeight:700, fontSize:15 }}>Past Entries</div>
-            <input
-              type="month"
-              value={historyMonth}
-              onChange={e => setHistoryMonth(e.target.value)}
-              style={{ padding:'5px 10px', borderRadius:6, border:'1px solid var(--border)', background:'var(--bg1)', color:'var(--text1)', fontSize:13 }}
-            />
+            <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+              <button
+                className="btn btn-sm btn-ghost"
+                style={{ fontSize:12 }}
+                disabled={recalculating}
+                onClick={async () => {
+                  setRecalculating(true);
+                  try {
+                    await api.post('/cashbook/recalculate-openings', {});
+                    await loadHistory(historyMonth);
+                  } finally { setRecalculating(false); }
+                }}
+              >
+                {recalculating ? '⟳ Fixing…' : '🔄 Fix Openings'}
+              </button>
+              <input
+                type="month"
+                value={historyMonth}
+                onChange={e => setHistoryMonth(e.target.value)}
+                style={{ padding:'5px 10px', borderRadius:6, border:'1px solid var(--border)', background:'var(--bg1)', color:'var(--text1)', fontSize:13 }}
+              />
+            </div>
           </div>
 
           {histLoading && <div className="loading">Loading…</div>}
