@@ -97,8 +97,10 @@ export default function Cashbook() {
       setAutoOpening(opening);
 
       if (entry) {
-        setForm({ ...entry });
-        setOpeningMode(Math.abs(entry.openingCash - opening) > 0.01 ? 'manual' : 'auto');
+        // Always use freshly-calculated opening from API (previous day's denom total).
+        // The stored openingCash may be stale/wrong from an earlier bug.
+        setForm({ ...entry, openingCash: opening });
+        setOpeningMode('auto');
       } else {
         setForm(emptyForm(date, opening));
         setOpeningMode('auto');
