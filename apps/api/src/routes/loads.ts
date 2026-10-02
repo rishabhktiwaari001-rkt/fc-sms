@@ -115,21 +115,28 @@ router.post('/:id/scan', async (req: AuthRequest, res) => {
     const { code } = req.body; // barcode, productId, or fcId
     if (!code) return res.status(400).json({ success: false, error: 'code required' });
 
-    // Find matching product in this load (by productId or barcode)
+    // Fetch ALL rows for this productId/barcode in the load.
+    // Same product may appear in multiple rows (different box IDs, same qty each).
+    // We must distribute scans across rows rather than stacking on the first one.
     const found = await query(
-      `SELECT * FROM "LoadProduct" WHERE loadId=? AND (productId=? OR barcode=?) LIMIT 1`,
+      `SELECT * FROM "LoadProduct" WHERE loadId=? AND (productId=? OR barcode=?) ORDER BY scannedQty ASC, id ASC`,
       [req.params.id, code, code]
     );
-    if (!found.rows[0]) {
+    if (!found.rows.length) {
       return res.status(404).json({ success: false, error: `Product "${code}" not found in this load` });
     }
-    const product = found.rows[0];
-    const newQty = (product.scannedQty ?? 0) + 1;
+
+    // Priority: pick the first row that still has unfilled capacity (scannedQty < quantity).
+    // If all rows are already at/above their quantity, fall back to the first row (overflow).
+    const rows: any[] = found.rows;
+    const target = rows.find(r => (r.scannedQty ?? 0) < r.quantity) ?? rows[0];
+
+    const newQty = (target.scannedQty ?? 0) + 1;
     await query(
       `UPDATE "LoadProduct" SET scannedQty=?, scannedBy=?, scannedAt=datetime('now') WHERE id=?`,
-      [newQty, req.user!.name, product.id]
+      [newQty, req.user!.name, target.id]
     );
-    const updated = await query(`SELECT * FROM "LoadProduct" WHERE id=?`, [product.id]);
+    const updated = await query(`SELECT * FROM "LoadProduct" WHERE id=?`, [target.id]);
     return res.json({ success: true, data: updated.rows[0] });
   } catch (err) {
     return res.status(500).json({ success: false, error: String(err) });
