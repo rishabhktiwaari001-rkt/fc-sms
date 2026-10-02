@@ -50,6 +50,7 @@ export default function Catalog() {
   const [searchId, setSearchId] = useState('');
   const [searching, setSearching] = useState(false);
   const [searchMsg, setSearchMsg] = useState<string | null>(null);
+  const [searchResults, setSearchResults] = useState<Array<ArticleProduct & { category: string; subcategory: string }> | null>(null);
   const [highlightProductId, setHighlightProductId] = useState<string | null>(null);
 
   // FC Live Price state: productId → 'loading' | 'error' | number | null
@@ -111,7 +112,7 @@ export default function Catalog() {
     e.preventDefault();
     const q = searchId.trim();
     if (!q) return;
-    setSearching(true); setSearchMsg(null);
+    setSearching(true); setSearchMsg(null); setSearchResults(null);
     try {
       const res = await api.get(`/catalog/search?q=${encodeURIComponent(q)}`);
       const items: Array<ArticleProduct & { category: string; subcategory: string }> = res.data.data ?? [];
@@ -119,17 +120,24 @@ export default function Catalog() {
         setSearchMsg(`No product found for "${q}"`);
         return;
       }
-      const hit = items[0];
-      setHighlightProductId(hit.productId);
-      setSelCategory(hit.category ?? '');
-      setSelSubcategory(hit.subcategory ?? '');
-      setView('articles');
-      setSearchMsg(null);
+      setSearchResults(items);
     } catch {
       setSearchMsg('Search failed. Try again.');
     } finally {
       setSearching(false);
     }
+  }
+
+  function clearSearch() {
+    setSearchId(''); setSearchResults(null); setSearchMsg(null); setHighlightProductId(null);
+  }
+
+  function goToProduct(hit: ArticleProduct & { category: string; subcategory: string }) {
+    setHighlightProductId(hit.productId);
+    setSelCategory(hit.category ?? '');
+    setSelSubcategory(hit.subcategory ?? '');
+    setView('articles');
+    setSearchResults(null);
   }
 
   async function handleImport(e: React.ChangeEvent<HTMLInputElement>) {
@@ -218,18 +226,21 @@ export default function Catalog() {
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-          {/* Product ID search bar */}
+          {/* Search bar — Product ID / Brand / MRP / Age */}
           <form onSubmit={handleSearch} style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
             <input
               type="text"
               value={searchId}
-              onChange={e => { setSearchId(e.target.value); setSearchMsg(null); }}
-              placeholder="Search by Product ID…"
-              style={{ padding: '5px 10px', fontSize: 12, borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg1)', color: 'var(--text1)', width: 170, outline: 'none' }}
+              onChange={e => { setSearchId(e.target.value); setSearchMsg(null); if (!e.target.value.trim()) { setSearchResults(null); } }}
+              placeholder="Search ID, Brand, MRP, Age…"
+              style={{ padding: '5px 10px', fontSize: 12, borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg1)', color: 'var(--text1)', width: 200, outline: 'none' }}
             />
             <button className="btn btn-ghost btn-sm" type="submit" disabled={searching || !searchId.trim()}>
               {searching ? '⟳' : '🔍'}
             </button>
+            {searchResults !== null && (
+              <button className="btn btn-ghost btn-sm" type="button" onClick={clearSearch} style={{ color: 'var(--red)' }}>✕</button>
+            )}
           </form>
           <button className="btn btn-ghost btn-sm" disabled={syncing} onClick={syncFromLoads}>
             {syncing ? '⟳ Syncing…' : '⟳ Sync from Loads'}
@@ -259,6 +270,63 @@ export default function Catalog() {
         <div style={{ marginBottom: 10, padding: '8px 14px', borderRadius: 6, fontSize: 13, fontWeight: 500, background: 'rgba(239,68,68,0.1)', color: 'var(--red)', border: '1px solid rgba(239,68,68,0.25)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           {searchMsg}
           <button onClick={() => setSearchMsg(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', fontSize: 14 }}>✕</button>
+        </div>
+      )}
+
+      {/* Search Results Panel */}
+      {searchResults !== null && (
+        <div className="card" style={{ padding: 0, marginBottom: 16 }}>
+          <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontWeight: 600, fontSize: 14 }}>
+              Search Results — {searchResults.length} product{searchResults.length !== 1 ? 's' : ''} for "{searchId}"
+            </span>
+            <button className="btn btn-ghost btn-sm" onClick={clearSearch} style={{ color: 'var(--red)' }}>✕ Clear</button>
+          </div>
+          <div className="tbl-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th style={{ width: 60 }}></th>
+                  <th>Product ID</th>
+                  <th>Product Name</th>
+                  <th>Brand</th>
+                  <th>Age</th>
+                  <th style={{ textAlign: 'right' }}>MRP</th>
+                  <th style={{ textAlign: 'right' }}>Qty</th>
+                  <th>Category</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {searchResults.map(p => (
+                  <tr key={p.id}>
+                    <td style={{ padding: '6px 8px' }}>
+                      <ProductImage productId={p.productId} size={44} />
+                    </td>
+                    <td className="mono" style={{ fontSize: 12 }}>{p.productId}</td>
+                    <td style={{ fontSize: 13, maxWidth: 280 }}>{p.productName}</td>
+                    <td style={{ fontSize: 12, color: 'var(--text2)' }}>{p.brand || '—'}</td>
+                    <td style={{ fontSize: 12, color: 'var(--text2)' }}>{p.age || '—'}</td>
+                    <td style={{ textAlign: 'right', fontWeight: 600 }}>{fmtRs(p.mrp)}</td>
+                    <td style={{ textAlign: 'right', fontWeight: 700 }}>{fmtQty(p.quantity)}</td>
+                    <td style={{ fontSize: 11, color: 'var(--text2)' }}>
+                      <div>{(p as any).category}</div>
+                      <div style={{ fontSize: 10 }}>{(p as any).subcategory}</div>
+                    </td>
+                    <td>
+                      <button
+                        className="btn btn-ghost btn-sm"
+                        style={{ fontSize: 11 }}
+                        onClick={() => goToProduct(p as any)}
+                      >
+                        Go →
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
