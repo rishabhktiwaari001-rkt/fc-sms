@@ -647,7 +647,15 @@ router.get('/search', async (req: AuthRequest, res) => {
     const q = String(req.query.q || '').trim();
     if (!q) return res.json({ success: true, data: [] });
     const like = `%${q}%`;
-    const items = await query(`SELECT * FROM "CatalogItem" WHERE storeId=? AND (productId LIKE ? OR productName LIKE ? OR brand LIKE ?) LIMIT 50`, [req.storeId!, like, like, like]);
+    // Also match on age group and MRP (cast to text for LIKE)
+    const items = await query(
+      `SELECT * FROM "CatalogItem"
+       WHERE storeId=?
+         AND (productId LIKE ? OR productName LIKE ? OR brand LIKE ? OR age LIKE ? OR CAST(mrp AS TEXT) LIKE ?)
+       ORDER BY productName ASC
+       LIMIT 200`,
+      [req.storeId!, like, like, like, like, like]
+    );
     return res.json({ success: true, data: items.rows });
   } catch (err) {
     return res.status(500).json({ success: false, error: String(err) });
