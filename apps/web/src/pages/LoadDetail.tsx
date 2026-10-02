@@ -209,7 +209,15 @@ export default function LoadDetail() {
                   </td>
                 </tr>
               )}
-              {products.map((p, i) => {
+              {[...products].sort((a, b) => {
+                const priority = (p: Product) => {
+                  const sq = p.scannedQty ?? 0;
+                  if (sq === 0) return 0;              // Pending — top
+                  if (sq !== p.quantity) return 1;     // Short / Excess — middle
+                  return 2;                            // OK — bottom
+                };
+                return priority(a) - priority(b);
+              }).map((p, i) => {
                 const sq = p.scannedQty ?? 0;
                 const status = sq === 0 ? 'pending'
                   : sq < p.quantity ? 'short'
