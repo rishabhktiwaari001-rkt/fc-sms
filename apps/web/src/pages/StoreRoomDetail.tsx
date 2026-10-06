@@ -40,6 +40,8 @@ export default function StoreRoomDetail() {
   const inputRef = useRef<HTMLInputElement>(null);
 
   const [closing, setClosing] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [adjusting, setAdjusting] = useState<string | null>(null); // item id being adjusted
 
   async function handleScan(code: string) {
@@ -84,6 +86,25 @@ export default function StoreRoomDetail() {
     } finally { setClosing(false); }
   }
 
+  async function resetScanning() {
+    if (!confirm(`Reset all scanned items in "${box?.name}"? This cannot be undone.`)) return;
+    setResetting(true);
+    try {
+      await api.post(`/storeroom/boxes/${id}/reset`);
+      setScanMsg(null);
+      refetch();
+    } finally { setResetting(false); }
+  }
+
+  async function deleteBox() {
+    if (!confirm(`Permanently delete "${box?.name}" and all its items? This cannot be undone.`)) return;
+    setDeleting(true);
+    try {
+      await api.delete(`/storeroom/boxes/${id}`);
+      navigate('/storeroom');
+    } catch { setDeleting(false); }
+  }
+
   if (loading) return <div className="loading">Loading…</div>;
   if (error || !box) return <div className="error-box">{error ?? 'Box not found'}</div>;
 
@@ -118,16 +139,38 @@ export default function StoreRoomDetail() {
             </div>
           </div>
         </div>
-        {isOpen && (
+        <div style={{ display:'flex', gap:8 }}>
+          {isOpen && (
+            <button
+              className="btn btn-ghost btn-sm"
+              style={{ color:'var(--amber)', fontSize:12 }}
+              disabled={resetting || items.length === 0}
+              onClick={resetScanning}
+              title="Clear all scanned items and start fresh"
+            >
+              {resetting ? '⟳ Resetting…' : '🔄 Reset Scanning'}
+            </button>
+          )}
           <button
-            className="btn btn-brand btn-sm"
-            style={{ background:'var(--red)', borderColor:'var(--red)' }}
-            disabled={closing || items.length === 0}
-            onClick={closeBox}
+            className="btn btn-ghost btn-sm"
+            style={{ color:'var(--red)', fontSize:12 }}
+            disabled={deleting}
+            onClick={deleteBox}
+            title="Permanently delete this box"
           >
-            {closing ? '⟳ Closing…' : '🔒 Close Box'}
+            {deleting ? '⟳ Deleting…' : '🗑 Delete Box'}
           </button>
-        )}
+          {isOpen && (
+            <button
+              className="btn btn-brand btn-sm"
+              style={{ background:'var(--red)', borderColor:'var(--red)' }}
+              disabled={closing || items.length === 0}
+              onClick={closeBox}
+            >
+              {closing ? '⟳ Closing…' : '🔒 Close Box'}
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Summary stat cards */}
