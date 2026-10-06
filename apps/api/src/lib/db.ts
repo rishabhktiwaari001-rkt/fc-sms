@@ -302,6 +302,41 @@ function initSchema() {
     );
   `);
 
+  // Migrate: add StoreRoom tables
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS "StoreRoomBox" (
+      id TEXT PRIMARY KEY,
+      storeId TEXT NOT NULL,
+      name TEXT NOT NULL,
+      date TEXT NOT NULL,
+      closedAt TEXT,
+      totalQty INTEGER NOT NULL DEFAULT 0,
+      totalMrp REAL NOT NULL DEFAULT 0,
+      totalCtc REAL NOT NULL DEFAULT 0,
+      createdBy TEXT NOT NULL DEFAULT '',
+      createdAt TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (storeId) REFERENCES "Store"(id)
+    );
+    CREATE INDEX IF NOT EXISTS StoreRoomBox_storeId ON "StoreRoomBox"(storeId);
+
+    CREATE TABLE IF NOT EXISTS "StoreRoomItem" (
+      id TEXT PRIMARY KEY,
+      boxId TEXT NOT NULL,
+      storeId TEXT NOT NULL,
+      productId TEXT NOT NULL,
+      productName TEXT NOT NULL,
+      brand TEXT NOT NULL DEFAULT '',
+      age INTEGER,
+      mrp REAL NOT NULL DEFAULT 0,
+      ctc REAL NOT NULL DEFAULT 0,
+      quantity INTEGER NOT NULL DEFAULT 1,
+      scannedBy TEXT,
+      scannedAt TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (boxId) REFERENCES "StoreRoomBox"(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS StoreRoomItem_boxId ON "StoreRoomItem"(boxId);
+  `);
+
   // Migrate: add CashbookEntry table
   db.exec(`
     CREATE TABLE IF NOT EXISTS "CashbookEntry" (
