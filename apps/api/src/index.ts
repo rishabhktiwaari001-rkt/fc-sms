@@ -16,6 +16,7 @@ import dashboardRoutes from './routes/dashboard';
 import billingRoutes from './routes/billing';
 import imagesRoutes from './routes/images';
 import cashbookRoutes from './routes/cashbook';
+import storeroomRoutes from './routes/storeroom';
 
 const app = express();
 const PORT = process.env.PORT || 4000; // deploy trigger v6
@@ -40,6 +41,7 @@ app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/billing', billingRoutes);
 app.use('/api/images', imagesRoutes);
 app.use('/api/cashbook', cashbookRoutes);
+app.use('/api/storeroom', storeroomRoutes);
 
 // ── Health check ──────────────────────────────────────────────────────────────
 app.get('/health', (_req, res) => res.json({ ok: true, ts: new Date().toISOString() }));
