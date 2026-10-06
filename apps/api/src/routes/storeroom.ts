@@ -194,13 +194,34 @@ router.post('/boxes/:id/close', async (req: AuthRequest, res) => {
   }
 });
 
-// ── DELETE /storeroom/boxes/:id ── delete an open box ────────────────────────
-router.delete('/boxes/:id', async (req: AuthRequest, res) => {
+// ── POST /storeroom/boxes/:id/reset ── clear all items, keep the box ─────────
+router.post('/boxes/:id/reset', async (req: AuthRequest, res) => {
   try {
-    await query(
-      `DELETE FROM "StoreRoomBox" WHERE id=? AND storeId=?`,
+    const boxRes = await query(
+      `SELECT * FROM "StoreRoomBox" WHERE id=? AND storeId=?`,
       [req.params.id, req.storeId!]
     );
+    if (!boxRes.rows[0]) return res.status(404).json({ success: false, error: 'Box not found' });
+    if (boxRes.rows[0].closedAt) return res.status(400).json({ success: false, error: 'Cannot reset a closed box' });
+
+    await query(`DELETE FROM "StoreRoomItem" WHERE boxId=?`, [req.params.id]);
+    return res.json({ success: true });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: String(err) });
+  }
+});
+
+// ── DELETE /storeroom/boxes/:id ── permanently delete a box ──────────────────
+router.delete('/boxes/:id', async (req: AuthRequest, res) => {
+  try {
+    const boxRes = await query(
+      `SELECT * FROM "StoreRoomBox" WHERE id=? AND storeId=?`,
+      [req.params.id, req.storeId!]
+    );
+    if (!boxRes.rows[0]) return res.status(404).json({ success: false, error: 'Box not found' });
+
+    // Items are cascade-deleted via FK ON DELETE CASCADE
+    await query(`DELETE FROM "StoreRoomBox" WHERE id=? AND storeId=?`, [req.params.id, req.storeId!]);
     return res.json({ success: true });
   } catch (err) {
     return res.status(500).json({ success: false, error: String(err) });
