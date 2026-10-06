@@ -21,6 +21,8 @@ import ManualBilling from './pages/ManualBilling';
 import Cashbook from './pages/Cashbook';
 import POD from './pages/POD';
 import RetailMatrix from './pages/RetailMatrix';
+import StoreRoom from './pages/StoreRoom';
+import StoreRoomDetail from './pages/StoreRoomDetail';
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const token = localStorage.getItem('fc_token');
@@ -58,6 +60,8 @@ export default function App() {
                   <Route path="pod" element={<POD />} />
                   <Route path="matrix" element={<RetailMatrix />} />
                   <Route path="billing" element={<ManualBilling />} />
+                  <Route path="storeroom" element={<StoreRoom />} />
+                  <Route path="storeroom/:id" element={<StoreRoomDetail />} />
                   <Route path="members" element={<Members />} />
                   <Route path="staff" element={<Staff />} />
                   <Route path="stores" element={<Stores />} />
