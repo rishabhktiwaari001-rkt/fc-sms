@@ -123,7 +123,15 @@ export default function StoreRoom() {
           </div>
           <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(280px,1fr))', gap:12 }}>
             {open.map(box => (
-              <BoxCard key={box.id} box={box} onClick={() => navigate(`/storeroom/${box.id}`)} />
+              <BoxCard
+                key={box.id}
+                box={box}
+                onClick={() => navigate(`/storeroom/${box.id}`)}
+                onDelete={async () => {
+                  await api.delete(`/storeroom/boxes/${box.id}`);
+                  refetch();
+                }}
+              />
             ))}
           </div>
         </div>
@@ -156,6 +164,7 @@ export default function StoreRoom() {
                     <th>Total CTC</th>
                     <th>Closed On</th>
                     <th>By</th>
+                    <th></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -176,6 +185,19 @@ export default function StoreRoom() {
                         {box.closedAt ? new Date(box.closedAt).toLocaleDateString('en-IN') : '—'}
                       </td>
                       <td style={{ fontSize:12, color:'var(--text2)' }}>{box.createdBy}</td>
+                      <td onClick={e => e.stopPropagation()}>
+                        <button
+                          className="btn btn-ghost btn-sm"
+                          style={{ color:'var(--red)', padding:'3px 8px', fontSize:13 }}
+                          onClick={async () => {
+                            if (confirm(`Permanently delete "${box.name}"?`)) {
+                              await api.delete(`/storeroom/boxes/${box.id}`);
+                              refetch();
+                            }
+                          }}
+                          title="Delete box"
+                        >🗑</button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -188,7 +210,12 @@ export default function StoreRoom() {
   );
 }
 
-function BoxCard({ box, onClick }: { box: StoreBox; onClick: () => void }) {
+function BoxCard({ box, onClick, onDelete }: { box: StoreBox; onClick: () => void; onDelete: () => void }) {
+  function handleDelete(e: React.MouseEvent) {
+    e.stopPropagation();
+    if (confirm(`Permanently delete "${box.name}" and all its items?`)) onDelete();
+  }
+
   return (
     <div
       className="card"
@@ -197,7 +224,17 @@ function BoxCard({ box, onClick }: { box: StoreBox; onClick: () => void }) {
     >
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:8 }}>
         <div style={{ fontWeight:700, fontSize:15 }}>{box.name}</div>
-        <span className="chip chip-amber">Open</span>
+        <div style={{ display:'flex', gap:6, alignItems:'center' }}>
+          <span className="chip chip-amber">Open</span>
+          <button
+            className="btn btn-ghost btn-sm"
+            style={{ padding:'2px 7px', fontSize:13, color:'var(--red)', lineHeight:1 }}
+            onClick={handleDelete}
+            title="Delete box"
+          >
+            🗑
+          </button>
+        </div>
       </div>
       <div style={{ fontSize:12, color:'var(--text2)', marginBottom:10 }}>
         📅 {new Date(box.date).toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' })}
