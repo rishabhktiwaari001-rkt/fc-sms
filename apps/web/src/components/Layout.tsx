@@ -15,8 +15,9 @@ const NAV = [
   { path: '/match',    icon: '🔍', label: 'Match Stock' },
   { path: '/stock',    icon: '📦', label: 'View Stock' },
   { section: 'INVENTORY' },
-  { path: '/catalog',  icon: '📋', label: 'Catalog' },
-  { path: '/audits',   icon: '✅', label: 'Audit' },
+  { path: '/catalog',    icon: '📋', label: 'Catalog' },
+  { path: '/audits',     icon: '✅', label: 'Audit' },
+  { path: '/storeroom',  icon: '🏠', label: 'Store Room' },
   { section: 'OPERATIONS' },
   { path: '/cashbook', icon: '💰', label: 'Cashbook' },
   { path: '/billing',  icon: '🧾', label: 'Manual Billing' },
@@ -46,7 +47,7 @@ const PAGE_TITLES: Record<string, string> = {
   '/sr':        'Stock Return', '/eoss':     'EOSS',
   '/members':   'Members',      '/pod':      'POD Training',
   '/matrix':    'Retail Matrix','/staff':    'Staff',
-  '/stores':    'Stores',
+  '/stores':    'Stores',   '/storeroom': 'Store Room',
 };
 
 export default function Layout({ children }: { children: React.ReactNode }) {
