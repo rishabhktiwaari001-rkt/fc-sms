@@ -17,6 +17,20 @@ interface StoreBox {
   scannedQty: number;
 }
 
+interface SearchResult {
+  id: string;
+  boxId: string;
+  boxName: string;
+  boxDate: string;
+  boxClosedAt: string | null;
+  productId: string;
+  productName: string;
+  brand: string;
+  mrp: number;
+  ctc: number;
+  quantity: number;
+}
+
 export default function StoreRoom() {
   const navigate = useNavigate();
   const { data: boxes, loading, error, refetch } = useFetch<StoreBox[]>('/storeroom/boxes');
@@ -26,6 +40,40 @@ export default function StoreRoom() {
   const [newDate, setNewDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [creating, setCreating] = useState(false);
   const [createErr, setCreateErr] = useState<string | null>(null);
+
+  // Search state
+  const [searchQ, setSearchQ] = useState('');
+  const [searching, setSearching] = useState(false);
+  const [searchResults, setSearchResults] = useState<SearchResult[] | null>(null);
+  const [searchMsg, setSearchMsg] = useState<string | null>(null);
+
+  async function handleSearch(e: React.FormEvent) {
+    e.preventDefault();
+    const q = searchQ.trim();
+    if (!q) return;
+    setSearching(true);
+    setSearchResults(null);
+    setSearchMsg(null);
+    try {
+      const res = await api.get(`/storeroom/search?q=${encodeURIComponent(q)}`);
+      const data: SearchResult[] = res.data.data ?? [];
+      if (data.length === 0) {
+        setSearchMsg(`"${q}" किसी भी box में नहीं मिला`);
+      } else {
+        setSearchResults(data);
+      }
+    } catch {
+      setSearchMsg('Search failed. Try again.');
+    } finally {
+      setSearching(false);
+    }
+  }
+
+  function clearSearch() {
+    setSearchQ('');
+    setSearchResults(null);
+    setSearchMsg(null);
+  }
 
   async function createBox(e: React.FormEvent) {
     e.preventDefault();
@@ -64,6 +112,82 @@ export default function StoreRoom() {
         <button className="btn btn-brand btn-sm" onClick={() => setShowCreate(true)}>
           + New Box
         </button>
+      </div>
+
+      {/* Search bar */}
+      <div className="card" style={{ marginBottom:20, padding:'14px 18px' }}>
+        <form onSubmit={handleSearch} style={{ display:'flex', gap:10, alignItems:'center' }}>
+          <span style={{ fontSize:16 }}>🔍</span>
+          <input
+            className="inp"
+            style={{ flex:1, maxWidth:320 }}
+            placeholder="Product ID search करें — किस box में है?"
+            value={searchQ}
+            onChange={e => { setSearchQ(e.target.value); if (!e.target.value) clearSearch(); }}
+          />
+          <button className="btn btn-brand btn-sm" type="submit" disabled={searching || !searchQ.trim()}>
+            {searching ? '…' : 'Search'}
+          </button>
+          {(searchResults !== null || searchMsg) && (
+            <button type="button" className="btn btn-ghost btn-sm" onClick={clearSearch}>✕ Clear</button>
+          )}
+        </form>
+
+        {/* Search message (not found) */}
+        {searchMsg && (
+          <div style={{ marginTop:10, fontSize:13, color:'var(--text2)' }}>{searchMsg}</div>
+        )}
+
+        {/* Search results */}
+        {searchResults && searchResults.length > 0 && (
+          <div style={{ marginTop:12 }}>
+            <div style={{ fontSize:12, color:'var(--text2)', marginBottom:8 }}>
+              {searchResults.length} result{searchResults.length > 1 ? 's' : ''} found
+            </div>
+            <div className="tbl-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Product ID</th>
+                    <th>Product Name</th>
+                    <th>Brand</th>
+                    <th style={{ textAlign:'center' }}>Qty in Box</th>
+                    <th>MRP</th>
+                    <th>Box</th>
+                    <th>Status</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {searchResults.map(r => (
+                    <tr key={r.id}>
+                      <td className="mono" style={{ fontSize:12, fontWeight:600 }}>{r.productId}</td>
+                      <td style={{ fontSize:13, maxWidth:220 }}>{r.productName}</td>
+                      <td style={{ fontSize:12, color:'var(--text2)' }}>{r.brand || '—'}</td>
+                      <td style={{ textAlign:'center', fontWeight:700, color:'var(--brand)' }}>{r.quantity}</td>
+                      <td style={{ fontWeight:600 }}>₹{Number(r.mrp).toLocaleString('en-IN')}</td>
+                      <td style={{ fontWeight:600 }}>{r.boxName}</td>
+                      <td>
+                        {r.boxClosedAt
+                          ? <span className="chip chip-green">Closed</span>
+                          : <span className="chip chip-amber">Open</span>}
+                      </td>
+                      <td>
+                        <button
+                          className="btn btn-ghost btn-sm"
+                          style={{ color:'var(--brand)', fontSize:12 }}
+                          onClick={() => navigate(`/storeroom/${r.boxId}`)}
+                        >
+                          Box देखें →
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Create Box modal */}
