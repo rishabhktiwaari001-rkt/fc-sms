@@ -5,6 +5,26 @@ import { authenticate, storeScope, AuthRequest } from '../middleware/auth';
 const router = Router();
 router.use(authenticate, storeScope);
 
+// ── GET /storeroom/search?q= ── search product across all boxes ──────────────
+router.get('/search', async (req: AuthRequest, res) => {
+  try {
+    const q = String(req.query.q || '').trim();
+    if (!q) return res.json({ success: true, data: [] });
+    const like = `%${q}%`;
+    const rows = await query(
+      `SELECT i.*, b.name as boxName, b.date as boxDate, b.closedAt as boxClosedAt
+       FROM "StoreRoomItem" i
+       JOIN "StoreRoomBox" b ON b.id=i.boxId
+       WHERE b.storeId=? AND (i.productId LIKE ? OR i.productName LIKE ?)
+       ORDER BY b.createdAt DESC`,
+      [req.storeId!, like, like]
+    );
+    return res.json({ success: true, data: rows.rows });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: String(err) });
+  }
+});
+
 // ── GET /storeroom/boxes ── list all boxes ────────────────────────────────────
 router.get('/boxes', async (req: AuthRequest, res) => {
   try {
