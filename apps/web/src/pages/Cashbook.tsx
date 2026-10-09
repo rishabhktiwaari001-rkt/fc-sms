@@ -497,19 +497,25 @@ export default function Cashbook() {
             <>
               {/* ── Month summary strip ── */}
               {(() => {
-                const totalCB  = history.reduce((s,e)=>s+cbTotal(e),0);
-                const totalSys = history.reduce((s,e)=>s+sysTotal(e),0);
-                const totalDiff = totalCB - totalSys;
-                const diffColor = totalDiff === 0 ? 'var(--green)' : totalDiff > 0 ? '#d97706' : 'var(--red)';
-                const diffLabel = totalDiff === 0 ? '✅ Balanced' : totalDiff > 0 ? '⚠️ CB Excess' : '🔴 CB Short';
+                const totalCB      = history.reduce((s,e)=>s+cbTotal(e),0);
+                const totalSys     = history.reduce((s,e)=>s+sysTotal(e),0);
+                const totalDiff    = totalCB - totalSys;
+                const totalDeposit = history.reduce((s,e)=>s+Number(e.depositAmount||0),0);
+                const totalCBCash  = history.reduce((s,e)=>s+Number(e.cbCash||0),0);
+                // Net Cash = total CB cash collected − total deposited → expected physical cash in store this month
+                const netCash      = totalCBCash - totalDeposit;
+                const diffColor    = totalDiff === 0 ? 'var(--green)' : totalDiff > 0 ? '#d97706' : 'var(--red)';
+                const diffLabel    = totalDiff === 0 ? '✅ Balanced' : totalDiff > 0 ? '⚠️ CB Excess' : '🔴 CB Short';
+                const netColor     = netCash >= 0 ? '#b45309' : 'var(--red)';
                 return (
-                  <div style={{ display:'grid', gridTemplateColumns:'repeat(5,1fr)', gap:10, marginBottom:16 }}>
+                  <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(148px, 1fr))', gap:10, marginBottom:16 }}>
                     {[
-                      { label:'📒 CB Total Sales', value: totalCB,  color:'#1d4ed8' },
-                      { label:'🖥️ Sys Total Sales', value: totalSys, color:'#059669' },
-                      { label: diffLabel,           value: totalDiff, color: diffColor, showSign: true },
-                      { label:'🏦 Total Deposit',   value: history.reduce((s,e)=>s+Number(e.depositAmount||0),0), color:'#7c3aed' },
-                      { label:'📅 Days Entered',    value: history.length, color:'#b45309', isCount: true },
+                      { label:'📒 CB Total Sales',  value: totalCB,      color:'#1d4ed8' },
+                      { label:'🖥️ Sys Total Sales', value: totalSys,     color:'#059669' },
+                      { label: diffLabel,             value: totalDiff,    color: diffColor, showSign: true },
+                      { label:'🏦 Total Deposit',    value: totalDeposit, color:'#7c3aed' },
+                      { label:'💵 Net Cash (Est.)',  value: netCash,      color: netColor },
+                      { label:'📅 Days Entered',     value: history.length, color:'#b45309', isCount: true },
                     ].map(({ label, value, color, isCount, showSign }) => (
                       <div key={label} style={{ background:'var(--bg2)', borderRadius:8, padding:'10px 14px', borderLeft:`3px solid ${color}` }}>
                         <div style={{ fontSize:11, color:'var(--text2)', fontWeight:500, marginBottom:4 }}>{label}</div>
@@ -542,13 +548,38 @@ export default function Cashbook() {
                   </tr>
                 </thead>
                 <tbody>
-                  {history.map(e => {
+                  {(() => {
+                    // Sort ascending by date to compute prev-day variance
+                    const sortedAsc = [...history].sort((a, b) => a.date.localeCompare(b.date));
+                    const varianceMap = new Map<string, number | null>();
+                    sortedAsc.forEach((e, idx) => {
+                      if (idx === 0) { varianceMap.set(e.date, null); return; }
+                      const prev = sortedAsc[idx - 1];
+                      const prevClosing = Number(prev.openingCash||0) + Number(prev.cbCash||0) - Number(prev.depositAmount||0);
+                      varianceMap.set(e.date, Number(e.openingCash||0) - prevClosing);
+                    });
+
+                    return history.map(e => {
                     const cb_ = cbTotal(e), sys_ = sysTotal(e), diff_ = cb_ - sys_;
                     const closing_ = Number(e.openingCash || 0) + Number(e.cbCash || 0) - Number(e.depositAmount || 0);
+                    const variance = varianceMap.get(e.date) ?? null;
                     return (
                       <tr key={e.id} style={{ cursor:'pointer' }} onClick={() => { setActiveDate(e.date); setTab('entry'); }}>
                         <td style={{ fontWeight:600 }}>{fmtDate(e.date)}</td>
-                        <td style={{ textAlign:'right', fontVariantNumeric:'tabular-nums', color:'var(--text2)' }}>{fmtRs(Number(e.openingCash||0))}</td>
+                        <td style={{ textAlign:'right', fontVariantNumeric:'tabular-nums', color:'var(--text2)' }}>
+                          {fmtRs(Number(e.openingCash||0))}
+                          {variance !== null && Math.abs(variance) > 0.01 && (
+                            <div style={{
+                              fontSize:10, fontWeight:700, marginTop:2, lineHeight:1.2,
+                              color: variance < 0 ? 'var(--red)' : 'var(--green)',
+                            }}>
+                              {variance < 0 ? '↓ SHORT' : '↑ EXCESS'}&nbsp;{fmtRs(Math.abs(variance))}
+                            </div>
+                          )}
+                          {variance !== null && Math.abs(variance) <= 0.01 && (
+                            <div style={{ fontSize:10, color:'var(--green)', marginTop:2 }}>✓</div>
+                          )}
+                        </td>
                         <td style={{ textAlign:'right', fontVariantNumeric:'tabular-nums' }}>{fmtRs(e.cbCash)}</td>
                         <td style={{ textAlign:'right', fontVariantNumeric:'tabular-nums' }}>{fmtRs(e.cbCreditCard)}</td>
                         <td style={{ textAlign:'right', fontVariantNumeric:'tabular-nums' }}>{fmtRs(e.cbUpi)}</td>
@@ -561,7 +592,8 @@ export default function Cashbook() {
                         <td style={{ textAlign:'right', fontVariantNumeric:'tabular-nums', fontWeight:700, color:'#b45309' }}>{fmtRs(closing_)}</td>
                       </tr>
                     );
-                  })}
+                  });
+                  })()}
                 </tbody>
                 <tfoot>
                   <tr style={{ background:'var(--bg2)', fontWeight:700 }}>
