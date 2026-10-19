@@ -2,6 +2,8 @@ import React, { useState, useCallback, useMemo } from 'react';
 
 interface SaleRow {
   BillDate: Date;
+  MonthKey: string;   // "YYYY-MM"
+  MonthLabel: string; // "Apr 2026"
   SalesPerson: string;
   GSV: number;
   Quantity: number;
@@ -25,6 +27,16 @@ interface StaffStat {
   avpt: number;
   aupt: number;
   singlePct: number;
+}
+
+const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+function monthKey(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+function monthLabel(key: string): string {
+  const [y, m] = key.split('-');
+  return `${MONTH_NAMES[+m - 1]} ${y}`;
 }
 
 function parseCSV(text: string): Record<string, string>[] {
@@ -78,8 +90,10 @@ function processRows(raw: Record<string, string>[]): SaleRow[] {
     const day = date.getDate();
     const week = Math.ceil(day / 7);
     const isMem = /membership/i.test(prod) || cat === 'GiftCertificate';
+    const mk = monthKey(date);
     return {
-      BillDate: date, SalesPerson: sp.trim(), GSV: gsv, Quantity: qty,
+      BillDate: date, MonthKey: mk, MonthLabel: monthLabel(mk),
+      SalesPerson: sp.trim(), GSV: gsv, Quantity: qty,
       InvoiceNumber: inv, ProductName: prod, Category: cat, SubCategory: sub,
       Week: week, WeekLabel: `Week ${week}`, DayName: DAYS[date.getDay()],
       isMembership: isMem,
@@ -120,16 +134,17 @@ export default function RetailMatrix() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState(0);
+  const [selMonth, setSelMonth] = useState('All');
   const [selCat, setSelCat] = useState('All');
   const [selSub, setSelSub] = useState('All');
   const [transpose, setTranspose] = useState(false);
 
-  const TABS = ['🏆 Rankings', '🔍 Category', '💳 Memberships', '📅 Sales Reports', '⚠️ Single Bills'];
+  const TABS = ['🏆 Rankings', '🔍 Category', '💳 Memberships', '📅 Sales Reports', '⚠️ Single Bills', '📆 Monthly Breakdown'];
 
   const handleFile = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    setLoading(true); setError(null); setRows([]);
+    setLoading(true); setError(null); setRows([]); setSelMonth('All');
     setFileName(file.name);
     const reader = new FileReader();
     reader.onload = ev => {
@@ -145,28 +160,48 @@ export default function RetailMatrix() {
     e.target.value = '';
   }, []);
 
+  // All base sales rows (no membership, no free sample)
   const salesRows = useMemo(() => rows.filter(r => !r.isMembership && r.Category !== 'Free Sample Category'), [rows]);
-  const memRows = useMemo(() => rows.filter(r => r.isMembership), [rows]);
-  const staffStats = useMemo(() => buildStaffStats(salesRows), [salesRows]);
-  const maxWeek = useMemo(() => Math.max(0, ...rows.map(r => r.Week)), [rows]);
+
+  // Available months sorted chronologically
+  const availableMonths = useMemo(() => {
+    const keys = Array.from(new Set(salesRows.map(r => r.MonthKey))).sort();
+    return keys.map(k => ({ key: k, label: monthLabel(k) }));
+  }, [salesRows]);
+
+  // Month-filtered sales rows — used by ALL tabs
+  const activeSalesRows = useMemo(() => {
+    if (selMonth === 'All') return salesRows;
+    return salesRows.filter(r => r.MonthKey === selMonth);
+  }, [salesRows, selMonth]);
+
+  // Membership rows (also month-filtered)
+  const memRows = useMemo(() => {
+    const base = rows.filter(r => r.isMembership);
+    if (selMonth === 'All') return base;
+    return base.filter(r => r.MonthKey === selMonth);
+  }, [rows, selMonth]);
+
+  const staffStats = useMemo(() => buildStaffStats(activeSalesRows), [activeSalesRows]);
+  const maxWeek = useMemo(() => Math.max(0, ...activeSalesRows.map(r => r.Week)), [activeSalesRows]);
 
   const weeklyWinners = useMemo(() => {
     if (!maxWeek) return [];
-    return buildStaffStats(salesRows.filter(r => r.Week === maxWeek)).filter(s => s.aupt >= 4 && s.avpt >= 3000);
-  }, [salesRows, maxWeek]);
+    return buildStaffStats(activeSalesRows.filter(r => r.Week === maxWeek)).filter(s => s.aupt >= 4 && s.avpt >= 3000);
+  }, [activeSalesRows, maxWeek]);
 
-  const categories = useMemo(() => ['All', ...Array.from(new Set(salesRows.map(r => r.Category).filter(Boolean))).sort()], [salesRows]);
+  const categories = useMemo(() => ['All', ...Array.from(new Set(activeSalesRows.map(r => r.Category).filter(Boolean))).sort()], [activeSalesRows]);
   const subCategories = useMemo(() => {
     if (selCat === 'All') return ['All'];
-    return ['All', ...Array.from(new Set(salesRows.filter(r => r.Category === selCat).map(r => r.SubCategory).filter(Boolean))).sort()];
-  }, [salesRows, selCat]);
+    return ['All', ...Array.from(new Set(activeSalesRows.filter(r => r.Category === selCat).map(r => r.SubCategory).filter(Boolean))).sort()];
+  }, [activeSalesRows, selCat]);
 
   const filteredCatRows = useMemo(() => {
-    let f = salesRows;
+    let f = activeSalesRows;
     if (selCat !== 'All') f = f.filter(r => r.Category === selCat);
     if (selSub !== 'All') f = f.filter(r => r.SubCategory === selSub);
     return f;
-  }, [salesRows, selCat, selSub]);
+  }, [activeSalesRows, selCat, selSub]);
 
   const catStats = useMemo(() => {
     const total = filteredCatRows.reduce((s, r) => s + r.GSV, 0);
@@ -195,25 +230,57 @@ export default function RetailMatrix() {
 
   const dayWise = useMemo(() => {
     const map: Record<string, { date: Date; day: string; gsv: number }> = {};
-    for (const r of salesRows) {
+    for (const r of activeSalesRows) {
       const k = r.BillDate.toISOString().slice(0, 10);
       if (!map[k]) map[k] = { date: r.BillDate, day: r.DayName, gsv: 0 };
       map[k].gsv += r.GSV;
     }
     return Object.values(map).sort((a, b) => b.date.getTime() - a.date.getTime());
-  }, [salesRows]);
+  }, [activeSalesRows]);
 
   const weekWise = useMemo(() => {
     const map: Record<string, number> = {};
-    for (const r of salesRows) { map[r.WeekLabel] = (map[r.WeekLabel] || 0) + r.GSV; }
+    for (const r of activeSalesRows) { map[r.WeekLabel] = (map[r.WeekLabel] || 0) + r.GSV; }
     return Object.entries(map).sort((a, b) => a[0].localeCompare(b[0]));
-  }, [salesRows]);
+  }, [activeSalesRows]);
 
+  // Monthly Breakdown: staff × month matrix
+  const monthlyBreakdown = useMemo(() => {
+    const months = availableMonths.map(m => m.key);
+    const staffSet = new Set(salesRows.map(r => r.SalesPerson));
+    const staffList = Array.from(staffSet).sort();
+    type CellData = { gsv: number; bills: Set<string>; invQty: Map<string, number> };
+    const grid: Record<string, Record<string, CellData>> = {};
+    for (const r of salesRows) {
+      if (!grid[r.SalesPerson]) grid[r.SalesPerson] = {};
+      if (!grid[r.SalesPerson][r.MonthKey]) grid[r.SalesPerson][r.MonthKey] = { gsv: 0, bills: new Set(), invQty: new Map() };
+      const cell = grid[r.SalesPerson][r.MonthKey];
+      cell.gsv += r.GSV;
+      cell.bills.add(r.InvoiceNumber);
+      cell.invQty.set(r.InvoiceNumber, (cell.invQty.get(r.InvoiceNumber) || 0) + r.Quantity);
+    }
+    // Monthly totals
+    const monthTotals: Record<string, { gsv: number; bills: Set<string> }> = {};
+    for (const mk of months) {
+      monthTotals[mk] = { gsv: 0, bills: new Set() };
+      for (const r of salesRows.filter(x => x.MonthKey === mk)) {
+        monthTotals[mk].gsv += r.GSV;
+        monthTotals[mk].bills.add(r.InvoiceNumber);
+      }
+    }
+    return { months, staffList, grid, monthTotals };
+  }, [salesRows, availableMonths]);
+
+  const selectStyle = { padding: '5px 10px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg1)', color: 'var(--text1)', fontSize: 13 };
   const card = { background: 'var(--bg1)', border: '1px solid var(--border)', borderRadius: 10, padding: 16, marginBottom: 16 };
   const th = { padding: '8px 12px', fontSize: 12, fontWeight: 700, color: 'var(--text2)', textAlign: 'left' as const, borderBottom: '2px solid var(--border)', whiteSpace: 'nowrap' as const };
   const td = { padding: '7px 12px', fontSize: 13, borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap' as const };
   const tdR = { ...td, textAlign: 'right' as const, fontVariantNumeric: 'tabular-nums' };
   const badge = (color: string) => ({ display: 'inline-block', padding: '2px 8px', borderRadius: 12, fontSize: 11, fontWeight: 700, background: `${color}22`, color });
+
+  const activeLabel = selMonth === 'All' ? 'All Months' : monthLabel(selMonth);
+  const activeTotalGSV = activeSalesRows.reduce((s, r) => s + r.GSV, 0);
+  const activeTotalBills = new Set(activeSalesRows.map(r => r.InvoiceNumber)).size;
 
   return (
     <div style={{ maxWidth: 1100, margin: '0 auto' }}>
@@ -244,10 +311,11 @@ export default function RetailMatrix() {
 
       {rows.length > 0 && (
         <>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 16 }}>
+          {/* Summary stats */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 12 }}>
             {[
-              { label: 'Total GSV', value: fmtRs(salesRows.reduce((s, r) => s + r.GSV, 0)), color: '#1d4ed8' },
-              { label: 'Total Bills', value: new Set(salesRows.map(r => r.InvoiceNumber)).size, color: '#059669' },
+              { label: `Total GSV${selMonth !== 'All' ? ` · ${activeLabel}` : ''}`, value: fmtRs(activeTotalGSV), color: '#1d4ed8' },
+              { label: `Total Bills${selMonth !== 'All' ? ` · ${activeLabel}` : ''}`, value: activeTotalBills, color: '#059669' },
               { label: 'Staff Count', value: staffStats.length, color: '#7c3aed' },
               { label: 'File', value: fileName, color: '#b45309' },
             ].map(({ label, value, color }) => (
@@ -258,15 +326,36 @@ export default function RetailMatrix() {
             ))}
           </div>
 
+          {/* Month filter pills */}
+          {availableMonths.length > 1 && (
+            <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+              <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text2)', marginRight: 2 }}>📅 MONTH:</span>
+              {[{ key: 'All', label: 'All Months' }, ...availableMonths].map(m => (
+                <button
+                  key={m.key}
+                  onClick={() => setSelMonth(m.key)}
+                  className={`btn btn-sm ${selMonth === m.key ? 'btn-brand' : 'btn-ghost'}`}
+                  style={{ fontSize: 12, padding: '4px 12px' }}
+                >
+                  {m.label}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Tab buttons */}
           <div style={{ display: 'flex', gap: 4, marginBottom: 16, flexWrap: 'wrap' }}>
             {TABS.map((t, i) => (
               <button key={i} onClick={() => setActiveTab(i)} className={`btn btn-sm ${activeTab === i ? 'btn-brand' : 'btn-ghost'}`} style={{ fontSize: 12 }}>{t}</button>
             ))}
           </div>
 
+          {/* ── Tab 0: Rankings ── */}
           {activeTab === 0 && (
             <div style={card}>
-              <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 12 }}>🏆 Staff Rankings (by GSV)</div>
+              <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 12 }}>
+                🏆 Staff Rankings — {activeLabel}
+              </div>
               <div className="tbl-wrap">
                 <table>
                   <thead>
@@ -307,18 +396,19 @@ export default function RetailMatrix() {
             </div>
           )}
 
+          {/* ── Tab 1: Category ── */}
           {activeTab === 1 && (
             <div style={card}>
               <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 14, flexWrap: 'wrap' }}>
                 <div>
                   <label style={{ fontSize: 11, color: 'var(--text2)', fontWeight: 600, display: 'block', marginBottom: 3 }}>Category</label>
-                  <select value={selCat} onChange={e => { setSelCat(e.target.value); setSelSub('All'); }} style={{ padding: '5px 10px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg1)', color: 'var(--text1)', fontSize: 13 }}>
+                  <select value={selCat} onChange={e => { setSelCat(e.target.value); setSelSub('All'); }} style={selectStyle}>
                     {categories.map(c => <option key={c}>{c}</option>)}
                   </select>
                 </div>
                 <div>
                   <label style={{ fontSize: 11, color: 'var(--text2)', fontWeight: 600, display: 'block', marginBottom: 3 }}>Sub-Category</label>
-                  <select value={selSub} onChange={e => setSelSub(e.target.value)} style={{ padding: '5px 10px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg1)', color: 'var(--text1)', fontSize: 13 }}>
+                  <select value={selSub} onChange={e => setSelSub(e.target.value)} style={selectStyle}>
                     {subCategories.map(c => <option key={c}>{c}</option>)}
                   </select>
                 </div>
@@ -326,7 +416,9 @@ export default function RetailMatrix() {
                   <input type="checkbox" checked={transpose} onChange={e => setTranspose(e.target.checked)} />
                   🔄 Transpose View
                 </label>
-                <div style={{ marginLeft: 'auto', fontSize: 13, fontWeight: 700, color: '#1d4ed8' }}>Total: {fmtRs(catStats.total)}</div>
+                <div style={{ marginLeft: 'auto', fontSize: 13, fontWeight: 700, color: '#1d4ed8' }}>
+                  {activeLabel} · Total: {fmtRs(catStats.total)}
+                </div>
               </div>
               <div className="tbl-wrap">
                 {!transpose ? (
@@ -365,9 +457,10 @@ export default function RetailMatrix() {
             </div>
           )}
 
+          {/* ── Tab 2: Memberships ── */}
           {activeTab === 2 && (
             <div style={card}>
-              <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 12 }}>💳 Membership Hub</div>
+              <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 12 }}>💳 Membership Hub — {activeLabel}</div>
               {memRows.length === 0 ? (
                 <div style={{ padding: 24, textAlign: 'center', color: 'var(--text2)', fontSize: 13 }}>No memberships found in data.</div>
               ) : (
@@ -388,10 +481,11 @@ export default function RetailMatrix() {
             </div>
           )}
 
+          {/* ── Tab 3: Sales Reports ── */}
           {activeTab === 3 && (
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
               <div style={card}>
-                <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 10 }}>📅 Day-wise Sales</div>
+                <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 10 }}>📅 Day-wise Sales — {activeLabel}</div>
                 <div className="tbl-wrap">
                   <table>
                     <thead><tr><th style={th}>Date</th><th style={th}>Day</th><th style={th}>GSV</th></tr></thead>
@@ -408,7 +502,7 @@ export default function RetailMatrix() {
                 </div>
               </div>
               <div style={card}>
-                <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 10 }}>🗓️ Week-wise Sales</div>
+                <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 10 }}>🗓️ Week-wise Sales — {activeLabel}</div>
                 <div className="tbl-wrap">
                   <table>
                     <thead><tr><th style={th}>Week</th><th style={th}>GSV</th></tr></thead>
@@ -420,9 +514,10 @@ export default function RetailMatrix() {
             </div>
           )}
 
+          {/* ── Tab 4: Single Bills ── */}
           {activeTab === 4 && (
             <div style={card}>
-              <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>⚠️ Single Bill Risk</div>
+              <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>⚠️ Single Bill Risk — {activeLabel}</div>
               <div style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 12 }}>Staff with high single-item bills need upselling improvement</div>
               <div className="tbl-wrap">
                 <table>
@@ -435,6 +530,139 @@ export default function RetailMatrix() {
                         <td style={tdR}>{s.bills}</td>
                         <td style={tdR}>{s.singleBills}</td>
                         <td style={{ ...tdR, fontWeight: 700, color: s.singlePct > 40 ? 'var(--red)' : s.singlePct > 25 ? '#d97706' : 'var(--green)' }}>{s.singlePct.toFixed(1)}%</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* ── Tab 5: Monthly Breakdown ── */}
+          {activeTab === 5 && (
+            <div style={card}>
+              <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>📆 Monthly Breakdown — All Staff × All Months</div>
+              <div style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 14 }}>GSV / Bills per staff per month (use month pills above to drill into any month's tabs)</div>
+
+              {/* Month totals row */}
+              <div style={{ display: 'grid', gridTemplateColumns: `repeat(${monthlyBreakdown.months.length}, 1fr)`, gap: 8, marginBottom: 16 }}>
+                {monthlyBreakdown.months.map(mk => {
+                  const mt = monthlyBreakdown.monthTotals[mk];
+                  return (
+                    <div
+                      key={mk}
+                      onClick={() => setSelMonth(mk === selMonth ? 'All' : mk)}
+                      style={{ padding: '10px 12px', borderRadius: 8, background: selMonth === mk ? 'rgba(29,78,216,0.1)' : 'var(--bg2)', border: selMonth === mk ? '2px solid #1d4ed8' : '1px solid var(--border)', cursor: 'pointer', textAlign: 'center' }}
+                    >
+                      <div style={{ fontSize: 11, fontWeight: 700, color: selMonth === mk ? '#1d4ed8' : 'var(--text2)', marginBottom: 3 }}>{monthLabel(mk)}</div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text1)' }}>{fmtRs(mt.gsv)}</div>
+                      <div style={{ fontSize: 11, color: 'var(--text2)' }}>{mt.bills.size} bills</div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* GSV matrix */}
+              <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8, color: 'var(--text2)' }}>GSV by Staff × Month</div>
+              <div className="tbl-wrap" style={{ marginBottom: 20 }}>
+                <table>
+                  <thead>
+                    <tr>
+                      <th style={th}>Staff</th>
+                      {monthlyBreakdown.months.map(mk => <th key={mk} style={{ ...th, textAlign: 'right' as const }}>{monthLabel(mk)}</th>)}
+                      <th style={{ ...th, textAlign: 'right' as const, color: '#1d4ed8' }}>Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {monthlyBreakdown.staffList.map(name => {
+                      const total = monthlyBreakdown.months.reduce((s, mk) => s + (monthlyBreakdown.grid[name]?.[mk]?.gsv || 0), 0);
+                      return (
+                        <tr key={name}>
+                          <td style={{ ...td, fontWeight: 600 }}>{name}</td>
+                          {monthlyBreakdown.months.map(mk => {
+                            const gsv = monthlyBreakdown.grid[name]?.[mk]?.gsv || 0;
+                            return <td key={mk} style={{ ...tdR, color: gsv ? 'var(--text1)' : 'var(--text2)' }}>{gsv ? fmtRs(gsv) : '—'}</td>;
+                          })}
+                          <td style={{ ...tdR, fontWeight: 700, color: '#1d4ed8' }}>{fmtRs(total)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  <tfoot>
+                    <tr style={{ background: 'var(--bg2)', fontWeight: 700 }}>
+                      <td style={td}>Month Total</td>
+                      {monthlyBreakdown.months.map(mk => (
+                        <td key={mk} style={{ ...tdR, color: '#059669' }}>{fmtRs(monthlyBreakdown.monthTotals[mk].gsv)}</td>
+                      ))}
+                      <td style={{ ...tdR, color: '#1d4ed8' }}>{fmtRs(monthlyBreakdown.months.reduce((s, mk) => s + monthlyBreakdown.monthTotals[mk].gsv, 0))}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+
+              {/* Bills matrix */}
+              <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8, color: 'var(--text2)' }}>Bills by Staff × Month</div>
+              <div className="tbl-wrap" style={{ marginBottom: 20 }}>
+                <table>
+                  <thead>
+                    <tr>
+                      <th style={th}>Staff</th>
+                      {monthlyBreakdown.months.map(mk => <th key={mk} style={{ ...th, textAlign: 'right' as const }}>{monthLabel(mk)}</th>)}
+                      <th style={{ ...th, textAlign: 'right' as const, color: '#059669' }}>Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {monthlyBreakdown.staffList.map(name => {
+                      const total = monthlyBreakdown.months.reduce((s, mk) => s + (monthlyBreakdown.grid[name]?.[mk]?.bills.size || 0), 0);
+                      return (
+                        <tr key={name}>
+                          <td style={{ ...td, fontWeight: 600 }}>{name}</td>
+                          {monthlyBreakdown.months.map(mk => {
+                            const b = monthlyBreakdown.grid[name]?.[mk]?.bills.size || 0;
+                            return <td key={mk} style={{ ...tdR, color: b ? 'var(--text1)' : 'var(--text2)' }}>{b || '—'}</td>;
+                          })}
+                          <td style={{ ...tdR, fontWeight: 700, color: '#059669' }}>{total}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  <tfoot>
+                    <tr style={{ background: 'var(--bg2)', fontWeight: 700 }}>
+                      <td style={td}>Month Total</td>
+                      {monthlyBreakdown.months.map(mk => (
+                        <td key={mk} style={{ ...tdR, color: '#059669' }}>{monthlyBreakdown.monthTotals[mk].bills.size}</td>
+                      ))}
+                      <td style={{ ...tdR, color: '#059669' }}>{new Set(salesRows.map(r => r.InvoiceNumber)).size}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+
+              {/* Single Bills matrix */}
+              <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8, color: 'var(--text2)' }}>Single-Item Bills % by Staff × Month</div>
+              <div className="tbl-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th style={th}>Staff</th>
+                      {monthlyBreakdown.months.map(mk => <th key={mk} style={{ ...th, textAlign: 'right' as const }}>{monthLabel(mk)}</th>)}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {monthlyBreakdown.staffList.map(name => (
+                      <tr key={name}>
+                        <td style={{ ...td, fontWeight: 600 }}>{name}</td>
+                        {monthlyBreakdown.months.map(mk => {
+                          const cell = monthlyBreakdown.grid[name]?.[mk];
+                          if (!cell || cell.bills.size === 0) return <td key={mk} style={{ ...tdR, color: 'var(--text2)' }}>—</td>;
+                          const single = [...cell.invQty.values()].filter(q => q === 1).length;
+                          const pct = (single / cell.bills.size) * 100;
+                          return (
+                            <td key={mk} style={{ ...tdR, fontWeight: 600, color: pct > 40 ? 'var(--red)' : pct > 25 ? '#d97706' : 'var(--green)' }}>
+                              {pct.toFixed(0)}%
+                            </td>
+                          );
+                        })}
                       </tr>
                     ))}
                   </tbody>
