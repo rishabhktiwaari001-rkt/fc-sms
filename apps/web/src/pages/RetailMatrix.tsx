@@ -49,8 +49,13 @@ function parseCSV(text: string): Record<string, string>[] {
 
 function parseDate(s: string): Date | null {
   if (!s) return null;
+  // DD/MM/YYYY — 4-digit year
   const dmy = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
   if (dmy) return new Date(+dmy[3], +dmy[2] - 1, +dmy[1]);
+  // DD/MM/YY — 2-digit year (e.g. "01/04/26" = 1 Apr 2026)
+  const dmyShort = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2})$/);
+  if (dmyShort) return new Date(2000 + +dmyShort[3], +dmyShort[2] - 1, +dmyShort[1]);
+  // YYYY/MM/DD
   const ymd = s.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
   if (ymd) return new Date(+ymd[1], +ymd[2] - 1, +ymd[3]);
   const d = new Date(s);
