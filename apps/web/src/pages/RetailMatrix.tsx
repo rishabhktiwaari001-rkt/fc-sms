@@ -534,6 +534,30 @@ export default function RetailMatrix() {
                       </tr>
                     ))}
                   </tbody>
+                  <tfoot>
+                    {(() => {
+                      const totalBills = staffStats.reduce((s, x) => s + x.bills, 0);
+                      const totalSingle = staffStats.reduce((s, x) => s + x.singleBills, 0);
+                      const totalPct = totalBills ? (totalSingle / totalBills) * 100 : 0;
+                      const avgPct = staffStats.length ? staffStats.reduce((s, x) => s + x.singlePct, 0) / staffStats.length : 0;
+                      return (
+                        <>
+                          <tr style={{ background: 'var(--bg2)', fontWeight: 700 }}>
+                            <td style={td} colSpan={2}>Total</td>
+                            <td style={tdR}>{totalBills}</td>
+                            <td style={tdR}>{totalSingle}</td>
+                            <td style={{ ...tdR, color: totalPct > 40 ? 'var(--red)' : totalPct > 25 ? '#d97706' : 'var(--green)' }}>{totalPct.toFixed(1)}%</td>
+                          </tr>
+                          <tr style={{ background: 'var(--bg2)', fontWeight: 700, borderTop: '1px dashed var(--border)' }}>
+                            <td style={td} colSpan={2}>Store Avg / Staff</td>
+                            <td style={{ ...tdR, color: 'var(--text2)' }}>{staffStats.length ? Math.round(totalBills / staffStats.length) : '—'}</td>
+                            <td style={{ ...tdR, color: 'var(--text2)' }}>{staffStats.length ? Math.round(totalSingle / staffStats.length) : '—'}</td>
+                            <td style={{ ...tdR, color: avgPct > 40 ? 'var(--red)' : avgPct > 25 ? '#d97706' : 'var(--green)' }}>{avgPct.toFixed(1)}%</td>
+                          </tr>
+                        </>
+                      );
+                    })()}
+                  </tfoot>
                 </table>
               </div>
             </div>
