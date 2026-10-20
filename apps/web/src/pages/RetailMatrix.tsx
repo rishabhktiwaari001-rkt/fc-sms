@@ -590,216 +590,163 @@ export default function RetailMatrix() {
                 })}
               </div>
 
-              {/* GSV matrix */}
-              <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8, color: 'var(--text2)' }}>GSV by Staff × Month</div>
-              <div className="tbl-wrap" style={{ marginBottom: 20 }}>
-                <table>
-                  <thead>
-                    <tr>
-                      <th style={th}>Staff</th>
-                      {visibleMonths.map(mk => <th key={mk} style={{ ...th, textAlign: 'right' as const }}>{monthLabel(mk)}</th>)}
-                      <th style={{ ...th, textAlign: 'right' as const, color: '#1d4ed8' }}>Total</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {monthlyBreakdown.staffList.map(name => {
-                      const total = visibleMonths.reduce((s, mk) => s + (monthlyBreakdown.grid[name]?.[mk]?.gsv || 0), 0);
-                      return (
-                        <tr key={name}>
-                          <td style={{ ...td, fontWeight: 600 }}>{name}</td>
-                          {visibleMonths.map(mk => {
-                            const gsv = monthlyBreakdown.grid[name]?.[mk]?.gsv || 0;
-                            return <td key={mk} style={{ ...tdR, color: gsv ? 'var(--text1)' : 'var(--text2)' }}>{gsv ? fmtRs(gsv) : '—'}</td>;
-                          })}
-                          <td style={{ ...tdR, fontWeight: 700, color: '#1d4ed8' }}>{fmtRs(total)}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                  <tfoot>
-                    <tr style={{ background: 'var(--bg2)', fontWeight: 700 }}>
-                      <td style={td}>Month Total</td>
-                      {visibleMonths.map(mk => (
-                        <td key={mk} style={{ ...tdR, color: '#059669' }}>{fmtRs(monthlyBreakdown.monthTotals[mk].gsv)}</td>
-                      ))}
-                      <td style={{ ...tdR, color: '#1d4ed8' }}>{fmtRs(visibleMonths.reduce((s, mk) => s + monthlyBreakdown.monthTotals[mk].gsv, 0))}</td>
-                    </tr>
-                  </tfoot>
-                </table>
-              </div>
-
-              {/* Bills matrix */}
-              <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8, color: 'var(--text2)' }}>Bills by Staff × Month</div>
-              <div className="tbl-wrap" style={{ marginBottom: 20 }}>
-                <table>
-                  <thead>
-                    <tr>
-                      <th style={th}>Staff</th>
-                      {visibleMonths.map(mk => <th key={mk} style={{ ...th, textAlign: 'right' as const }}>{monthLabel(mk)}</th>)}
-                      <th style={{ ...th, textAlign: 'right' as const, color: '#059669' }}>Total</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {monthlyBreakdown.staffList.map(name => {
-                      const total = visibleMonths.reduce((s, mk) => s + (monthlyBreakdown.grid[name]?.[mk]?.bills.size || 0), 0);
-                      return (
-                        <tr key={name}>
-                          <td style={{ ...td, fontWeight: 600 }}>{name}</td>
-                          {visibleMonths.map(mk => {
-                            const b = monthlyBreakdown.grid[name]?.[mk]?.bills.size || 0;
-                            return <td key={mk} style={{ ...tdR, color: b ? 'var(--text1)' : 'var(--text2)' }}>{b || '—'}</td>;
-                          })}
-                          <td style={{ ...tdR, fontWeight: 700, color: '#059669' }}>{total}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                  <tfoot>
-                    <tr style={{ background: 'var(--bg2)', fontWeight: 700 }}>
-                      <td style={td}>Month Total</td>
-                      {visibleMonths.map(mk => (
-                        <td key={mk} style={{ ...tdR, color: '#059669' }}>{monthlyBreakdown.monthTotals[mk].bills.size}</td>
-                      ))}
-                      <td style={{ ...tdR, color: '#059669' }}>{visibleMonths.reduce((s, mk) => s + monthlyBreakdown.monthTotals[mk].bills.size, 0)}</td>
-                    </tr>
-                  </tfoot>
-                </table>
-              </div>
-
-              {/* ≤2 Qty Bills matrix */}
-              <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8, color: 'var(--text2)' }}>≤2 Qty Bills % by Staff × Month</div>
-              <div className="tbl-wrap" style={{ marginBottom: 20 }}>
-                <table>
-                  <thead>
-                    <tr>
-                      <th style={th}>Staff</th>
-                      {visibleMonths.map(mk => <th key={mk} style={{ ...th, textAlign: 'right' as const }}>{monthLabel(mk)}</th>)}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {monthlyBreakdown.staffList.map(name => (
-                      <tr key={name}>
-                        <td style={{ ...td, fontWeight: 600 }}>{name}</td>
-                        {visibleMonths.map(mk => {
-                          const cell = monthlyBreakdown.grid[name]?.[mk];
-                          if (!cell || cell.bills.size === 0) return <td key={mk} style={{ ...tdR, color: 'var(--text2)' }}>—</td>;
-                          const single = [...cell.invQty.values()].filter(q => q <= 2).length;
-                          const pct = (single / cell.bills.size) * 100;
-                          return (
-                            <td key={mk} style={{ ...tdR, fontWeight: 600, color: pct > 40 ? 'var(--red)' : pct > 25 ? '#d97706' : 'var(--green)' }}>
-                              {pct.toFixed(0)}%
-                            </td>
-                          );
-                        })}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              {/* AVPT matrix */}
-              <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 4, color: 'var(--text2)' }}>AVPT — Avg Value Per Transaction (GSV ÷ Bills) by Staff × Month</div>
-              <div style={{ fontSize: 11, color: 'var(--text2)', marginBottom: 8 }}>Higher = better; target ≥ ₹3,000</div>
-              <div className="tbl-wrap" style={{ marginBottom: 20 }}>
-                <table>
-                  <thead>
-                    <tr>
-                      <th style={th}>Staff</th>
-                      {visibleMonths.map(mk => <th key={mk} style={{ ...th, textAlign: 'right' as const }}>{monthLabel(mk)}</th>)}
-                      <th style={{ ...th, textAlign: 'right' as const, color: '#1d4ed8' }}>Overall</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {monthlyBreakdown.staffList.map(name => {
-                      const totalGsv = visibleMonths.reduce((s, mk) => s + (monthlyBreakdown.grid[name]?.[mk]?.gsv || 0), 0);
-                      const totalBills = visibleMonths.reduce((s, mk) => s + (monthlyBreakdown.grid[name]?.[mk]?.bills.size || 0), 0);
-                      const overallAvpt = totalBills ? Math.round(totalGsv / totalBills) : 0;
-                      return (
-                        <tr key={name}>
-                          <td style={{ ...td, fontWeight: 600 }}>{name}</td>
-                          {visibleMonths.map(mk => {
-                            const cell = monthlyBreakdown.grid[name]?.[mk];
-                            if (!cell || cell.bills.size === 0) return <td key={mk} style={{ ...tdR, color: 'var(--text2)' }}>—</td>;
-                            const avpt = Math.round(cell.gsv / cell.bills.size);
-                            return (
-                              <td key={mk} style={{ ...tdR, fontWeight: 600, color: avpt >= 3000 ? 'var(--green)' : avpt >= 2000 ? '#d97706' : 'var(--red)' }}>
-                                {fmtRs(avpt)}
-                              </td>
-                            );
-                          })}
-                          <td style={{ ...tdR, fontWeight: 700, color: overallAvpt >= 3000 ? 'var(--green)' : overallAvpt >= 2000 ? '#d97706' : 'var(--red)' }}>
-                            {overallAvpt ? fmtRs(overallAvpt) : '—'}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                  <tfoot>
-                    <tr style={{ background: 'var(--bg2)', fontWeight: 700 }}>
-                      <td style={td}>Store Avg</td>
-                      {visibleMonths.map(mk => {
-                        const mt = monthlyBreakdown.monthTotals[mk];
-                        const avpt = mt.bills.size ? Math.round(mt.gsv / mt.bills.size) : 0;
-                        return <td key={mk} style={{ ...tdR, color: avpt >= 3000 ? 'var(--green)' : avpt >= 2000 ? '#d97706' : 'var(--red)' }}>{fmtRs(avpt)}</td>;
-                      })}
-                      <td style={{ ...tdR, color: '#1d4ed8' }}>
-                        {(() => { const rows = salesRows.filter(r => visibleMonths.includes(r.MonthKey)); const tb = new Set(rows.map(r => r.InvoiceNumber)).size; const tg = rows.reduce((s,r)=>s+r.GSV,0); return tb ? fmtRs(Math.round(tg/tb)) : '—'; })()}
-                      </td>
-                    </tr>
-                  </tfoot>
-                </table>
-              </div>
-
-              {/* AUPT matrix */}
-              <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 4, color: 'var(--text2)' }}>AUPT — Avg Units Per Transaction (Qty ÷ Bills) by Staff × Month</div>
-              <div style={{ fontSize: 11, color: 'var(--text2)', marginBottom: 8 }}>Higher = better; target ≥ 4 units</div>
+              {/* Unified Staff × Month matrix */}
               <div className="tbl-wrap">
                 <table>
                   <thead>
                     <tr>
-                      <th style={th}>Staff</th>
-                      {visibleMonths.map(mk => <th key={mk} style={{ ...th, textAlign: 'right' as const }}>{monthLabel(mk)}</th>)}
-                      <th style={{ ...th, textAlign: 'right' as const, color: '#1d4ed8' }}>Overall</th>
+                      <th style={{ ...th, minWidth: 110 }}>Staff</th>
+                      <th style={{ ...th, minWidth: 80, color: 'var(--text2)' }}>Metric</th>
+                      {visibleMonths.map(mk => <th key={mk} style={{ ...th, textAlign: 'right' as const, minWidth: 90 }}>{monthLabel(mk)}</th>)}
+                      <th style={{ ...th, textAlign: 'right' as const, minWidth: 90, color: '#1d4ed8' }}>Overall</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {monthlyBreakdown.staffList.map(name => {
-                      const totalQty = visibleMonths.reduce((s, mk) => s + (monthlyBreakdown.grid[name]?.[mk]?.qty || 0), 0);
+                    {monthlyBreakdown.staffList.map((name, si) => {
+                      const totalGsv   = visibleMonths.reduce((s, mk) => s + (monthlyBreakdown.grid[name]?.[mk]?.gsv || 0), 0);
                       const totalBills = visibleMonths.reduce((s, mk) => s + (monthlyBreakdown.grid[name]?.[mk]?.bills.size || 0), 0);
+                      const totalQty   = visibleMonths.reduce((s, mk) => s + (monthlyBreakdown.grid[name]?.[mk]?.qty || 0), 0);
+                      const overallAvpt = totalBills ? Math.round(totalGsv / totalBills) : 0;
                       const overallAupt = totalBills ? Math.round((totalQty / totalBills) * 100) / 100 : 0;
+                      const totalSingle = visibleMonths.reduce((s, mk) => {
+                        const cell = monthlyBreakdown.grid[name]?.[mk];
+                        if (!cell) return s;
+                        return s + [...cell.invQty.values()].filter(q => q <= 2).length;
+                      }, 0);
+                      const overallSinglePct = totalBills ? (totalSingle / totalBills) * 100 : 0;
+                      const rowBg = si % 2 === 0 ? 'var(--bg1)' : 'var(--bg2)';
+                      const subTd = { ...td, background: rowBg, fontSize: 12 };
+                      const subTdR = { ...tdR, background: rowBg, fontSize: 12 };
+                      const label = (txt: string, color?: string) => (
+                        <td style={{ ...subTd, color: color || 'var(--text2)', fontWeight: 600, paddingLeft: 10 }}>{txt}</td>
+                      );
                       return (
-                        <tr key={name}>
-                          <td style={{ ...td, fontWeight: 600 }}>{name}</td>
-                          {visibleMonths.map(mk => {
-                            const cell = monthlyBreakdown.grid[name]?.[mk];
-                            if (!cell || cell.bills.size === 0) return <td key={mk} style={{ ...tdR, color: 'var(--text2)' }}>—</td>;
-                            const aupt = Math.round((cell.qty / cell.bills.size) * 100) / 100;
-                            return (
-                              <td key={mk} style={{ ...tdR, fontWeight: 600, color: aupt >= 4 ? 'var(--green)' : aupt >= 3 ? '#d97706' : 'var(--red)' }}>
-                                {aupt.toFixed(2)}
-                              </td>
-                            );
-                          })}
-                          <td style={{ ...tdR, fontWeight: 700, color: overallAupt >= 4 ? 'var(--green)' : overallAupt >= 3 ? '#d97706' : 'var(--red)' }}>
-                            {overallAupt ? overallAupt.toFixed(2) : '—'}
-                          </td>
-                        </tr>
+                        <React.Fragment key={name}>
+                          {/* GSV row */}
+                          <tr>
+                            <td style={{ ...subTd, fontWeight: 700, verticalAlign: 'top', borderTop: '2px solid var(--border)' }} rowSpan={5}>{name}</td>
+                            {label('GSV', '#1d4ed8')}
+                            {visibleMonths.map(mk => {
+                              const gsv = monthlyBreakdown.grid[name]?.[mk]?.gsv || 0;
+                              return <td key={mk} style={{ ...subTdR, borderTop: '2px solid var(--border)' }}>{gsv ? fmtRs(gsv) : <span style={{ color: 'var(--text2)' }}>—</span>}</td>;
+                            })}
+                            <td style={{ ...subTdR, fontWeight: 700, color: '#1d4ed8', borderTop: '2px solid var(--border)' }}>{fmtRs(totalGsv)}</td>
+                          </tr>
+                          {/* Bills row */}
+                          <tr>
+                            {label('Bills', '#059669')}
+                            {visibleMonths.map(mk => {
+                              const b = monthlyBreakdown.grid[name]?.[mk]?.bills.size || 0;
+                              return <td key={mk} style={subTdR}>{b || <span style={{ color: 'var(--text2)' }}>—</span>}</td>;
+                            })}
+                            <td style={{ ...subTdR, fontWeight: 700, color: '#059669' }}>{totalBills}</td>
+                          </tr>
+                          {/* AVPT row */}
+                          <tr>
+                            {label('AVPT')}
+                            {visibleMonths.map(mk => {
+                              const cell = monthlyBreakdown.grid[name]?.[mk];
+                              if (!cell || cell.bills.size === 0) return <td key={mk} style={{ ...subTdR, color: 'var(--text2)' }}>—</td>;
+                              const avpt = Math.round(cell.gsv / cell.bills.size);
+                              return <td key={mk} style={{ ...subTdR, color: avpt >= 3000 ? 'var(--green)' : avpt >= 2000 ? '#d97706' : 'var(--red)' }}>{fmtRs(avpt)}</td>;
+                            })}
+                            <td style={{ ...subTdR, fontWeight: 700, color: overallAvpt >= 3000 ? 'var(--green)' : overallAvpt >= 2000 ? '#d97706' : 'var(--red)' }}>{overallAvpt ? fmtRs(overallAvpt) : '—'}</td>
+                          </tr>
+                          {/* AUPT row */}
+                          <tr>
+                            {label('AUPT')}
+                            {visibleMonths.map(mk => {
+                              const cell = monthlyBreakdown.grid[name]?.[mk];
+                              if (!cell || cell.bills.size === 0) return <td key={mk} style={{ ...subTdR, color: 'var(--text2)' }}>—</td>;
+                              const aupt = Math.round((cell.qty / cell.bills.size) * 100) / 100;
+                              return <td key={mk} style={{ ...subTdR, color: aupt >= 4 ? 'var(--green)' : aupt >= 3 ? '#d97706' : 'var(--red)' }}>{aupt.toFixed(2)}</td>;
+                            })}
+                            <td style={{ ...subTdR, fontWeight: 700, color: overallAupt >= 4 ? 'var(--green)' : overallAupt >= 3 ? '#d97706' : 'var(--red)' }}>{overallAupt ? overallAupt.toFixed(2) : '—'}</td>
+                          </tr>
+                          {/* ≤2 Qty% row */}
+                          <tr>
+                            {label('≤2 Qty%')}
+                            {visibleMonths.map(mk => {
+                              const cell = monthlyBreakdown.grid[name]?.[mk];
+                              if (!cell || cell.bills.size === 0) return <td key={mk} style={{ ...subTdR, color: 'var(--text2)' }}>—</td>;
+                              const single = [...cell.invQty.values()].filter(q => q <= 2).length;
+                              const pct = (single / cell.bills.size) * 100;
+                              return <td key={mk} style={{ ...subTdR, color: pct > 40 ? 'var(--red)' : pct > 25 ? '#d97706' : 'var(--green)' }}>{pct.toFixed(0)}%</td>;
+                            })}
+                            <td style={{ ...subTdR, fontWeight: 700, color: overallSinglePct > 40 ? 'var(--red)' : overallSinglePct > 25 ? '#d97706' : 'var(--green)' }}>{overallSinglePct.toFixed(1)}%</td>
+                          </tr>
+                        </React.Fragment>
                       );
                     })}
                   </tbody>
                   <tfoot>
-                    <tr style={{ background: 'var(--bg2)', fontWeight: 700 }}>
-                      <td style={td}>Store Avg</td>
-                      {visibleMonths.map(mk => {
-                        const mt = monthlyBreakdown.monthTotals[mk];
-                        const totalQty = salesRows.filter(r => r.MonthKey === mk).reduce((s,r)=>s+r.Quantity,0);
-                        const aupt = mt.bills.size ? Math.round((totalQty / mt.bills.size) * 100) / 100 : 0;
-                        return <td key={mk} style={{ ...tdR, color: aupt >= 4 ? 'var(--green)' : aupt >= 3 ? '#d97706' : 'var(--red)' }}>{aupt.toFixed(2)}</td>;
-                      })}
-                      <td style={{ ...tdR, color: '#1d4ed8' }}>
-                        {(() => { const rows = salesRows.filter(r => visibleMonths.includes(r.MonthKey)); const tb = new Set(rows.map(r => r.InvoiceNumber)).size; const tq = rows.reduce((s,r)=>s+r.Quantity,0); return tb ? (Math.round((tq/tb)*100)/100).toFixed(2) : '—'; })()}
-                      </td>
-                    </tr>
+                    {/* Store totals */}
+                    {(() => {
+                      const storeGsv   = visibleMonths.reduce((s, mk) => s + monthlyBreakdown.monthTotals[mk].gsv, 0);
+                      const storeBills = visibleMonths.reduce((s, mk) => s + monthlyBreakdown.monthTotals[mk].bills.size, 0);
+                      const storeQty   = salesRows.filter(r => visibleMonths.includes(r.MonthKey)).reduce((s,r) => s + r.Quantity, 0);
+                      const storeAvpt  = storeBills ? Math.round(storeGsv / storeBills) : 0;
+                      const storeAupt  = storeBills ? Math.round((storeQty / storeBills) * 100) / 100 : 0;
+                      const storeSingle = visibleMonths.reduce((s, mk) => {
+                        return s + monthlyBreakdown.staffList.reduce((ss, name) => {
+                          const cell = monthlyBreakdown.grid[name]?.[mk];
+                          if (!cell) return ss;
+                          return ss + [...cell.invQty.values()].filter(q => q <= 2).length;
+                        }, 0);
+                      }, 0);
+                      const storeSinglePct = storeBills ? (storeSingle / storeBills) * 100 : 0;
+                      const fw: React.CSSProperties = { background: 'var(--bg2)', fontWeight: 700 };
+                      const footTd = { ...td, ...fw };
+                      const footTdR = { ...tdR, ...fw };
+                      return (
+                        <>
+                          <tr style={fw}>
+                            <td style={{ ...footTd, borderTop: '2px solid var(--border)' }} rowSpan={5}>Store Total</td>
+                            <td style={{ ...footTd, color: '#1d4ed8', paddingLeft: 10, borderTop: '2px solid var(--border)' }}>GSV</td>
+                            {visibleMonths.map(mk => <td key={mk} style={{ ...footTdR, borderTop: '2px solid var(--border)' }}>{fmtRs(monthlyBreakdown.monthTotals[mk].gsv)}</td>)}
+                            <td style={{ ...footTdR, color: '#1d4ed8', borderTop: '2px solid var(--border)' }}>{fmtRs(storeGsv)}</td>
+                          </tr>
+                          <tr style={fw}>
+                            <td style={{ ...footTd, color: '#059669', paddingLeft: 10 }}>Bills</td>
+                            {visibleMonths.map(mk => <td key={mk} style={{ ...footTdR, color: '#059669' }}>{monthlyBreakdown.monthTotals[mk].bills.size}</td>)}
+                            <td style={{ ...footTdR, color: '#059669' }}>{storeBills}</td>
+                          </tr>
+                          <tr style={fw}>
+                            <td style={{ ...footTd, paddingLeft: 10 }}>AVPT</td>
+                            {visibleMonths.map(mk => {
+                              const mt = monthlyBreakdown.monthTotals[mk];
+                              const avpt = mt.bills.size ? Math.round(mt.gsv / mt.bills.size) : 0;
+                              return <td key={mk} style={{ ...footTdR, color: avpt >= 3000 ? 'var(--green)' : avpt >= 2000 ? '#d97706' : 'var(--red)' }}>{fmtRs(avpt)}</td>;
+                            })}
+                            <td style={{ ...footTdR, color: storeAvpt >= 3000 ? 'var(--green)' : storeAvpt >= 2000 ? '#d97706' : 'var(--red)' }}>{storeAvpt ? fmtRs(storeAvpt) : '—'}</td>
+                          </tr>
+                          <tr style={fw}>
+                            <td style={{ ...footTd, paddingLeft: 10 }}>AUPT</td>
+                            {visibleMonths.map(mk => {
+                              const mt = monthlyBreakdown.monthTotals[mk];
+                              const q = salesRows.filter(r => r.MonthKey === mk).reduce((s,r)=>s+r.Quantity,0);
+                              const aupt = mt.bills.size ? Math.round((q / mt.bills.size) * 100) / 100 : 0;
+                              return <td key={mk} style={{ ...footTdR, color: aupt >= 4 ? 'var(--green)' : aupt >= 3 ? '#d97706' : 'var(--red)' }}>{aupt.toFixed(2)}</td>;
+                            })}
+                            <td style={{ ...footTdR, color: storeAupt >= 4 ? 'var(--green)' : storeAupt >= 3 ? '#d97706' : 'var(--red)' }}>{storeAupt ? storeAupt.toFixed(2) : '—'}</td>
+                          </tr>
+                          <tr style={fw}>
+                            <td style={{ ...footTd, paddingLeft: 10 }}>≤2 Qty%</td>
+                            {visibleMonths.map(mk => {
+                              const mt = monthlyBreakdown.monthTotals[mk];
+                              const single = monthlyBreakdown.staffList.reduce((ss, name) => {
+                                const cell = monthlyBreakdown.grid[name]?.[mk];
+                                if (!cell) return ss;
+                                return ss + [...cell.invQty.values()].filter(q => q <= 2).length;
+                              }, 0);
+                              const pct = mt.bills.size ? (single / mt.bills.size) * 100 : 0;
+                              return <td key={mk} style={{ ...footTdR, color: pct > 40 ? 'var(--red)' : pct > 25 ? '#d97706' : 'var(--green)' }}>{pct.toFixed(0)}%</td>;
+                            })}
+                            <td style={{ ...footTdR, color: storeSinglePct > 40 ? 'var(--red)' : storeSinglePct > 25 ? '#d97706' : 'var(--green)' }}>{storeSinglePct.toFixed(1)}%</td>
+                          </tr>
+                        </>
+                      );
+                    })()}
                   </tfoot>
                 </table>
               </div>
