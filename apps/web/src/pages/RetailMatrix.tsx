@@ -540,10 +540,13 @@ export default function RetailMatrix() {
           )}
 
           {/* ── Tab 5: Monthly Breakdown ── */}
-          {activeTab === 5 && (
+          {activeTab === 5 && (() => {
+            const visibleMonths = selMonth === 'All' ? monthlyBreakdown.months : monthlyBreakdown.months.filter(mk => mk === selMonth);
+            const breakdownLabel = selMonth === 'All' ? 'All Months' : monthLabel(selMonth);
+            return (
             <div style={card}>
-              <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>📆 Monthly Breakdown — All Staff × All Months</div>
-              <div style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 14 }}>GSV / Bills per staff per month (use month pills above to drill into any month's tabs)</div>
+              <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>📆 Monthly Breakdown — All Staff × {breakdownLabel}</div>
+              <div style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 14 }}>Click a month card to drill into that month · click again to reset</div>
 
               {/* Month totals row */}
               <div style={{ display: 'grid', gridTemplateColumns: `repeat(${monthlyBreakdown.months.length}, 1fr)`, gap: 8, marginBottom: 16 }}>
@@ -570,17 +573,17 @@ export default function RetailMatrix() {
                   <thead>
                     <tr>
                       <th style={th}>Staff</th>
-                      {monthlyBreakdown.months.map(mk => <th key={mk} style={{ ...th, textAlign: 'right' as const }}>{monthLabel(mk)}</th>)}
+                      {visibleMonths.map(mk => <th key={mk} style={{ ...th, textAlign: 'right' as const }}>{monthLabel(mk)}</th>)}
                       <th style={{ ...th, textAlign: 'right' as const, color: '#1d4ed8' }}>Total</th>
                     </tr>
                   </thead>
                   <tbody>
                     {monthlyBreakdown.staffList.map(name => {
-                      const total = monthlyBreakdown.months.reduce((s, mk) => s + (monthlyBreakdown.grid[name]?.[mk]?.gsv || 0), 0);
+                      const total = visibleMonths.reduce((s, mk) => s + (monthlyBreakdown.grid[name]?.[mk]?.gsv || 0), 0);
                       return (
                         <tr key={name}>
                           <td style={{ ...td, fontWeight: 600 }}>{name}</td>
-                          {monthlyBreakdown.months.map(mk => {
+                          {visibleMonths.map(mk => {
                             const gsv = monthlyBreakdown.grid[name]?.[mk]?.gsv || 0;
                             return <td key={mk} style={{ ...tdR, color: gsv ? 'var(--text1)' : 'var(--text2)' }}>{gsv ? fmtRs(gsv) : '—'}</td>;
                           })}
@@ -592,10 +595,10 @@ export default function RetailMatrix() {
                   <tfoot>
                     <tr style={{ background: 'var(--bg2)', fontWeight: 700 }}>
                       <td style={td}>Month Total</td>
-                      {monthlyBreakdown.months.map(mk => (
+                      {visibleMonths.map(mk => (
                         <td key={mk} style={{ ...tdR, color: '#059669' }}>{fmtRs(monthlyBreakdown.monthTotals[mk].gsv)}</td>
                       ))}
-                      <td style={{ ...tdR, color: '#1d4ed8' }}>{fmtRs(monthlyBreakdown.months.reduce((s, mk) => s + monthlyBreakdown.monthTotals[mk].gsv, 0))}</td>
+                      <td style={{ ...tdR, color: '#1d4ed8' }}>{fmtRs(visibleMonths.reduce((s, mk) => s + monthlyBreakdown.monthTotals[mk].gsv, 0))}</td>
                     </tr>
                   </tfoot>
                 </table>
@@ -608,17 +611,17 @@ export default function RetailMatrix() {
                   <thead>
                     <tr>
                       <th style={th}>Staff</th>
-                      {monthlyBreakdown.months.map(mk => <th key={mk} style={{ ...th, textAlign: 'right' as const }}>{monthLabel(mk)}</th>)}
+                      {visibleMonths.map(mk => <th key={mk} style={{ ...th, textAlign: 'right' as const }}>{monthLabel(mk)}</th>)}
                       <th style={{ ...th, textAlign: 'right' as const, color: '#059669' }}>Total</th>
                     </tr>
                   </thead>
                   <tbody>
                     {monthlyBreakdown.staffList.map(name => {
-                      const total = monthlyBreakdown.months.reduce((s, mk) => s + (monthlyBreakdown.grid[name]?.[mk]?.bills.size || 0), 0);
+                      const total = visibleMonths.reduce((s, mk) => s + (monthlyBreakdown.grid[name]?.[mk]?.bills.size || 0), 0);
                       return (
                         <tr key={name}>
                           <td style={{ ...td, fontWeight: 600 }}>{name}</td>
-                          {monthlyBreakdown.months.map(mk => {
+                          {visibleMonths.map(mk => {
                             const b = monthlyBreakdown.grid[name]?.[mk]?.bills.size || 0;
                             return <td key={mk} style={{ ...tdR, color: b ? 'var(--text1)' : 'var(--text2)' }}>{b || '—'}</td>;
                           })}
@@ -630,10 +633,10 @@ export default function RetailMatrix() {
                   <tfoot>
                     <tr style={{ background: 'var(--bg2)', fontWeight: 700 }}>
                       <td style={td}>Month Total</td>
-                      {monthlyBreakdown.months.map(mk => (
+                      {visibleMonths.map(mk => (
                         <td key={mk} style={{ ...tdR, color: '#059669' }}>{monthlyBreakdown.monthTotals[mk].bills.size}</td>
                       ))}
-                      <td style={{ ...tdR, color: '#059669' }}>{new Set(salesRows.map(r => r.InvoiceNumber)).size}</td>
+                      <td style={{ ...tdR, color: '#059669' }}>{visibleMonths.reduce((s, mk) => s + monthlyBreakdown.monthTotals[mk].bills.size, 0)}</td>
                     </tr>
                   </tfoot>
                 </table>
@@ -646,14 +649,14 @@ export default function RetailMatrix() {
                   <thead>
                     <tr>
                       <th style={th}>Staff</th>
-                      {monthlyBreakdown.months.map(mk => <th key={mk} style={{ ...th, textAlign: 'right' as const }}>{monthLabel(mk)}</th>)}
+                      {visibleMonths.map(mk => <th key={mk} style={{ ...th, textAlign: 'right' as const }}>{monthLabel(mk)}</th>)}
                     </tr>
                   </thead>
                   <tbody>
                     {monthlyBreakdown.staffList.map(name => (
                       <tr key={name}>
                         <td style={{ ...td, fontWeight: 600 }}>{name}</td>
-                        {monthlyBreakdown.months.map(mk => {
+                        {visibleMonths.map(mk => {
                           const cell = monthlyBreakdown.grid[name]?.[mk];
                           if (!cell || cell.bills.size === 0) return <td key={mk} style={{ ...tdR, color: 'var(--text2)' }}>—</td>;
                           const single = [...cell.invQty.values()].filter(q => q <= 2).length;
@@ -678,19 +681,19 @@ export default function RetailMatrix() {
                   <thead>
                     <tr>
                       <th style={th}>Staff</th>
-                      {monthlyBreakdown.months.map(mk => <th key={mk} style={{ ...th, textAlign: 'right' as const }}>{monthLabel(mk)}</th>)}
+                      {visibleMonths.map(mk => <th key={mk} style={{ ...th, textAlign: 'right' as const }}>{monthLabel(mk)}</th>)}
                       <th style={{ ...th, textAlign: 'right' as const, color: '#1d4ed8' }}>Overall</th>
                     </tr>
                   </thead>
                   <tbody>
                     {monthlyBreakdown.staffList.map(name => {
-                      const totalGsv = monthlyBreakdown.months.reduce((s, mk) => s + (monthlyBreakdown.grid[name]?.[mk]?.gsv || 0), 0);
-                      const totalBills = monthlyBreakdown.months.reduce((s, mk) => s + (monthlyBreakdown.grid[name]?.[mk]?.bills.size || 0), 0);
+                      const totalGsv = visibleMonths.reduce((s, mk) => s + (monthlyBreakdown.grid[name]?.[mk]?.gsv || 0), 0);
+                      const totalBills = visibleMonths.reduce((s, mk) => s + (monthlyBreakdown.grid[name]?.[mk]?.bills.size || 0), 0);
                       const overallAvpt = totalBills ? Math.round(totalGsv / totalBills) : 0;
                       return (
                         <tr key={name}>
                           <td style={{ ...td, fontWeight: 600 }}>{name}</td>
-                          {monthlyBreakdown.months.map(mk => {
+                          {visibleMonths.map(mk => {
                             const cell = monthlyBreakdown.grid[name]?.[mk];
                             if (!cell || cell.bills.size === 0) return <td key={mk} style={{ ...tdR, color: 'var(--text2)' }}>—</td>;
                             const avpt = Math.round(cell.gsv / cell.bills.size);
@@ -710,13 +713,13 @@ export default function RetailMatrix() {
                   <tfoot>
                     <tr style={{ background: 'var(--bg2)', fontWeight: 700 }}>
                       <td style={td}>Store Avg</td>
-                      {monthlyBreakdown.months.map(mk => {
+                      {visibleMonths.map(mk => {
                         const mt = monthlyBreakdown.monthTotals[mk];
                         const avpt = mt.bills.size ? Math.round(mt.gsv / mt.bills.size) : 0;
                         return <td key={mk} style={{ ...tdR, color: avpt >= 3000 ? 'var(--green)' : avpt >= 2000 ? '#d97706' : 'var(--red)' }}>{fmtRs(avpt)}</td>;
                       })}
                       <td style={{ ...tdR, color: '#1d4ed8' }}>
-                        {(() => { const tb = new Set(salesRows.map(r => r.InvoiceNumber)).size; const tg = salesRows.reduce((s,r)=>s+r.GSV,0); return tb ? fmtRs(Math.round(tg/tb)) : '—'; })()}
+                        {(() => { const rows = salesRows.filter(r => visibleMonths.includes(r.MonthKey)); const tb = new Set(rows.map(r => r.InvoiceNumber)).size; const tg = rows.reduce((s,r)=>s+r.GSV,0); return tb ? fmtRs(Math.round(tg/tb)) : '—'; })()}
                       </td>
                     </tr>
                   </tfoot>
@@ -731,19 +734,19 @@ export default function RetailMatrix() {
                   <thead>
                     <tr>
                       <th style={th}>Staff</th>
-                      {monthlyBreakdown.months.map(mk => <th key={mk} style={{ ...th, textAlign: 'right' as const }}>{monthLabel(mk)}</th>)}
+                      {visibleMonths.map(mk => <th key={mk} style={{ ...th, textAlign: 'right' as const }}>{monthLabel(mk)}</th>)}
                       <th style={{ ...th, textAlign: 'right' as const, color: '#1d4ed8' }}>Overall</th>
                     </tr>
                   </thead>
                   <tbody>
                     {monthlyBreakdown.staffList.map(name => {
-                      const totalQty = monthlyBreakdown.months.reduce((s, mk) => s + (monthlyBreakdown.grid[name]?.[mk]?.qty || 0), 0);
-                      const totalBills = monthlyBreakdown.months.reduce((s, mk) => s + (monthlyBreakdown.grid[name]?.[mk]?.bills.size || 0), 0);
+                      const totalQty = visibleMonths.reduce((s, mk) => s + (monthlyBreakdown.grid[name]?.[mk]?.qty || 0), 0);
+                      const totalBills = visibleMonths.reduce((s, mk) => s + (monthlyBreakdown.grid[name]?.[mk]?.bills.size || 0), 0);
                       const overallAupt = totalBills ? Math.round((totalQty / totalBills) * 100) / 100 : 0;
                       return (
                         <tr key={name}>
                           <td style={{ ...td, fontWeight: 600 }}>{name}</td>
-                          {monthlyBreakdown.months.map(mk => {
+                          {visibleMonths.map(mk => {
                             const cell = monthlyBreakdown.grid[name]?.[mk];
                             if (!cell || cell.bills.size === 0) return <td key={mk} style={{ ...tdR, color: 'var(--text2)' }}>—</td>;
                             const aupt = Math.round((cell.qty / cell.bills.size) * 100) / 100;
@@ -763,21 +766,22 @@ export default function RetailMatrix() {
                   <tfoot>
                     <tr style={{ background: 'var(--bg2)', fontWeight: 700 }}>
                       <td style={td}>Store Avg</td>
-                      {monthlyBreakdown.months.map(mk => {
+                      {visibleMonths.map(mk => {
                         const mt = monthlyBreakdown.monthTotals[mk];
                         const totalQty = salesRows.filter(r => r.MonthKey === mk).reduce((s,r)=>s+r.Quantity,0);
                         const aupt = mt.bills.size ? Math.round((totalQty / mt.bills.size) * 100) / 100 : 0;
                         return <td key={mk} style={{ ...tdR, color: aupt >= 4 ? 'var(--green)' : aupt >= 3 ? '#d97706' : 'var(--red)' }}>{aupt.toFixed(2)}</td>;
                       })}
                       <td style={{ ...tdR, color: '#1d4ed8' }}>
-                        {(() => { const tb = new Set(salesRows.map(r => r.InvoiceNumber)).size; const tq = salesRows.reduce((s,r)=>s+r.Quantity,0); return tb ? (Math.round((tq/tb)*100)/100).toFixed(2) : '—'; })()}
+                        {(() => { const rows = salesRows.filter(r => visibleMonths.includes(r.MonthKey)); const tb = new Set(rows.map(r => r.InvoiceNumber)).size; const tq = rows.reduce((s,r)=>s+r.Quantity,0); return tb ? (Math.round((tq/tb)*100)/100).toFixed(2) : '—'; })()}
                       </td>
                     </tr>
                   </tfoot>
                 </table>
               </div>
             </div>
-          )}
+            );
+          })()}
         </>
       )}
     </div>
