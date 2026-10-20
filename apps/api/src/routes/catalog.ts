@@ -44,32 +44,36 @@ router.get('/fcprice/:productId', async (req: AuthRequest, res) => {
     return res.status(500).json({ success: false, error: 'SCRAPER_API_KEY env var not set' });
   }
 
-  const fcUrls = [
-    `https://www.firstcry.com/p/${productId}`,
-    `https://www.firstcry.com/p-${productId}`,
+  // FirstCry product URL — p-{id} is the canonical redirect format
+  const fcUrl = `https://www.firstcry.com/p-${productId}`;
+
+  // Try 1: with JS rendering (costs 5 credits, but JS-rendered prices are present)
+  // Try 2: without rendering as fallback (1 credit, works if SSR has price)
+  const attempts = [
+    `https://api.scraperapi.com?api_key=${apiKey}&url=${encodeURIComponent(fcUrl)}&country_code=in&render=true`,
+    `https://api.scraperapi.com?api_key=${apiKey}&url=${encodeURIComponent(fcUrl)}&country_code=in`,
   ];
 
-  for (const fcUrl of fcUrls) {
+  for (const scraperUrl of attempts) {
     try {
-      const scraperUrl = `https://api.scraperapi.com?api_key=${apiKey}&url=${encodeURIComponent(fcUrl)}&country_code=in`;
       const response = await fetch(scraperUrl, {
-        signal: AbortSignal.timeout(30_000),
+        signal: AbortSignal.timeout(60_000), // rendered pages take up to 60s
         headers: { 'Accept-Language': 'en-IN,en-GB;q=0.9,en;q=0.8' },
       });
 
       if (!response.ok) continue;
 
       const html = await response.text();
-      if (html.length < 2000) continue; // bot-challenge / empty page
+      if (html.length < 2000) continue; // bot-challenge / redirect / empty page
 
-      // 1. __NEXT_DATA__ JSON blob (Next.js SSR — most reliable)
+      // 1. __NEXT_DATA__ JSON blob (Next.js SSR data — most reliable)
       const ndMatch = html.match(/<script[^>]+id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
       if (ndMatch) {
         try {
           const data = JSON.parse(ndMatch[1]);
           const price = findPriceInObj(data);
           if (price) return res.json({ success: true, price });
-        } catch { /* malformed JSON */ }
+        } catch { /* malformed JSON — try next */ }
       }
 
       // 2. JSON-LD structured data
@@ -82,7 +86,34 @@ router.get('/fcprice/:productId', async (req: AuthRequest, res) => {
           if (lp > 10) return res.json({ success: true, price: lp });
         } catch { /* skip */ }
       }
-    } catch { /* try next URL */ }
+
+      // 3. Inline JS variable patterns (client-side rendered price in script tags)
+      const inlinePatterns = [
+        /"(?:specialPrice|discountedPrice|offerPrice|salePrice|sellingPrice|currentPrice|finalPrice)"\s*:\s*(\d+(?:\.\d+)?)/,
+        /(?:specialPrice|discountedPrice|offerPrice|salePrice|sellingPrice)\s*=\s*(\d+(?:\.\d+)?)/,
+        /'(?:specialPrice|discountedPrice|offerPrice)'\s*:\s*(\d+(?:\.\d+)?)/,
+      ];
+      for (const pat of inlinePatterns) {
+        const m = html.match(pat);
+        if (m) {
+          const v = Number(m[1]);
+          if (v > 10 && v < 1_000_000) return res.json({ success: true, price: v });
+        }
+      }
+
+      // 4. Meta tag price (og:price:amount)
+      const metaMatch = html.match(/<meta[^>]+property="product:price:amount"[^>]+content="(\d+(?:\.\d+)?)"/i)
+        ?? html.match(/<meta[^>]+content="(\d+(?:\.\d+)?)"[^>]+property="product:price:amount"/i);
+      if (metaMatch) {
+        const v = Number(metaMatch[1]);
+        if (v > 10) return res.json({ success: true, price: v });
+      }
+
+      // Got a real page but price not found — stop here (don't retry without render)
+      if (html.includes('firstcry') && html.length > 10_000) {
+        return res.json({ success: true, price: null });
+      }
+    } catch { /* try next attempt */ }
   }
 
   return res.json({ success: true, price: null });
@@ -610,19 +641,25 @@ router.post('/sync-from-loads', async (req: AuthRequest, res) => {
       [req.storeId!]
     );
     let synced = 0;
+    let skipped = 0;
     for (const p of prods.rows) {
-      await query(
-        `INSERT INTO "CatalogItem"(id,storeId,productId,productName,mrp,ctc,brand,category,subcategory,age,gender,quantity)
-         VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
-         ON CONFLICT(storeId,productId) DO UPDATE SET
-           productName=excluded.productName, mrp=excluded.mrp, ctc=excluded.ctc,
-           brand=excluded.brand, quantity=excluded.quantity, updatedAt=datetime('now')`,
-        [uid(), req.storeId!, p.productId, p.productName, p.mrp, p.ctc,
-         p.brandId ?? null, p.productType ?? '', '', p.age ?? null, p.gender ?? null, p.qty]
+      // Category/subcategory must ALWAYS come from the inventory sheet (CSV import).
+      // Only update products that already exist in CatalogItem — never insert new
+      // rows from load data, because new rows would have no category from the sheet.
+      const result = await query(
+        `UPDATE "CatalogItem"
+         SET productName=?, mrp=?, ctc=?, brand=?, quantity=?, updatedAt=datetime('now')
+         WHERE storeId=? AND productId=?`,
+        [p.productName, p.mrp, p.ctc, p.brandId ?? null, p.qty,
+         req.storeId!, p.productId]
       );
-      synced++;
+      if ((result as any).changes > 0) {
+        synced++;
+      } else {
+        skipped++; // product not in inventory sheet — skip it
+      }
     }
-    return res.json({ success: true, data: { synced } });
+    return res.json({ success: true, data: { synced, skipped } });
   } catch (err) {
     return res.status(500).json({ success: false, error: String(err) });
   }
