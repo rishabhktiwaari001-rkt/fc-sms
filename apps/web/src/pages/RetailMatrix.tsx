@@ -118,7 +118,7 @@ function buildStaffStats(rows: SaleRow[]): StaffStat[] {
   }
   return Object.entries(map).map(([name, s]) => {
     const bills = Math.max(s.invs.size, 1);
-    const singleBills = [...s.invQty.values()].filter(q => q === 1).length;
+    const singleBills = [...s.invQty.values()].filter(q => q <= 2).length;
     return {
       rank: 0, name, gsv: s.gsv, qty: s.qty, bills, singleBills,
       avpt: Math.round(s.gsv / bills),
@@ -139,7 +139,7 @@ export default function RetailMatrix() {
   const [selSub, setSelSub] = useState('All');
   const [transpose, setTranspose] = useState(false);
 
-  const TABS = ['🏆 Rankings', '🔍 Category', '💳 Memberships', '📅 Sales Reports', '⚠️ Single Bills', '📆 Monthly Breakdown'];
+  const TABS = ['🏆 Rankings', '🔍 Category', '💳 Memberships', '📅 Sales Reports', '⚠️ Less than 2 Qty Bills', '📆 Monthly Breakdown'];
 
   const handleFile = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -249,13 +249,14 @@ export default function RetailMatrix() {
     const months = availableMonths.map(m => m.key);
     const staffSet = new Set(salesRows.map(r => r.SalesPerson));
     const staffList = Array.from(staffSet).sort();
-    type CellData = { gsv: number; bills: Set<string>; invQty: Map<string, number> };
+    type CellData = { gsv: number; qty: number; bills: Set<string>; invQty: Map<string, number> };
     const grid: Record<string, Record<string, CellData>> = {};
     for (const r of salesRows) {
       if (!grid[r.SalesPerson]) grid[r.SalesPerson] = {};
-      if (!grid[r.SalesPerson][r.MonthKey]) grid[r.SalesPerson][r.MonthKey] = { gsv: 0, bills: new Set(), invQty: new Map() };
+      if (!grid[r.SalesPerson][r.MonthKey]) grid[r.SalesPerson][r.MonthKey] = { gsv: 0, qty: 0, bills: new Set(), invQty: new Map() };
       const cell = grid[r.SalesPerson][r.MonthKey];
       cell.gsv += r.GSV;
+      cell.qty += r.Quantity;
       cell.bills.add(r.InvoiceNumber);
       cell.invQty.set(r.InvoiceNumber, (cell.invQty.get(r.InvoiceNumber) || 0) + r.Quantity);
     }
@@ -359,7 +360,7 @@ export default function RetailMatrix() {
               <div className="tbl-wrap">
                 <table>
                   <thead>
-                    <tr>{['Rank', 'Name', 'Total GSV', 'Qty', 'Bills', 'AVPT', 'AUPT', 'Single Bills', 'Single %'].map(h => <th key={h} style={th}>{h}</th>)}</tr>
+                    <tr>{['Rank', 'Name', 'Total GSV', 'Qty', 'Bills', 'AVPT', 'AUPT', '≤2 Qty Bills', '≤2 Qty %'].map(h => <th key={h} style={th}>{h}</th>)}</tr>
                   </thead>
                   <tbody>
                     {staffStats.map(s => (
@@ -514,14 +515,14 @@ export default function RetailMatrix() {
             </div>
           )}
 
-          {/* ── Tab 4: Single Bills ── */}
+          {/* ── Tab 4: Less than 2 Qty Bills ── */}
           {activeTab === 4 && (
             <div style={card}>
-              <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>⚠️ Single Bill Risk — {activeLabel}</div>
-              <div style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 12 }}>Staff with high single-item bills need upselling improvement</div>
+              <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>⚠️ Less than 2 Qty Bills — {activeLabel}</div>
+              <div style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 12 }}>Staff with high ≤2 quantity bills need upselling improvement</div>
               <div className="tbl-wrap">
                 <table>
-                  <thead><tr>{['Rank', 'SalesPerson', 'Total Bills', 'Single Bills', 'Single Bill %'].map(h => <th key={h} style={th}>{h}</th>)}</tr></thead>
+                  <thead><tr>{['Rank', 'SalesPerson', 'Total Bills', '≤2 Qty Bills', '≤2 Qty %'].map(h => <th key={h} style={th}>{h}</th>)}</tr></thead>
                   <tbody>
                     {[...staffStats].sort((a, b) => b.singlePct - a.singlePct).map(s => (
                       <tr key={s.name}>
@@ -638,9 +639,9 @@ export default function RetailMatrix() {
                 </table>
               </div>
 
-              {/* Single Bills matrix */}
-              <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8, color: 'var(--text2)' }}>Single-Item Bills % by Staff × Month</div>
-              <div className="tbl-wrap">
+              {/* ≤2 Qty Bills matrix */}
+              <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8, color: 'var(--text2)' }}>≤2 Qty Bills % by Staff × Month</div>
+              <div className="tbl-wrap" style={{ marginBottom: 20 }}>
                 <table>
                   <thead>
                     <tr>
@@ -655,7 +656,7 @@ export default function RetailMatrix() {
                         {monthlyBreakdown.months.map(mk => {
                           const cell = monthlyBreakdown.grid[name]?.[mk];
                           if (!cell || cell.bills.size === 0) return <td key={mk} style={{ ...tdR, color: 'var(--text2)' }}>—</td>;
-                          const single = [...cell.invQty.values()].filter(q => q === 1).length;
+                          const single = [...cell.invQty.values()].filter(q => q <= 2).length;
                           const pct = (single / cell.bills.size) * 100;
                           return (
                             <td key={mk} style={{ ...tdR, fontWeight: 600, color: pct > 40 ? 'var(--red)' : pct > 25 ? '#d97706' : 'var(--green)' }}>
@@ -666,6 +667,113 @@ export default function RetailMatrix() {
                       </tr>
                     ))}
                   </tbody>
+                </table>
+              </div>
+
+              {/* AVPT matrix */}
+              <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 4, color: 'var(--text2)' }}>AVPT — Avg Value Per Transaction (GSV ÷ Bills) by Staff × Month</div>
+              <div style={{ fontSize: 11, color: 'var(--text2)', marginBottom: 8 }}>Higher = better; target ≥ ₹3,000</div>
+              <div className="tbl-wrap" style={{ marginBottom: 20 }}>
+                <table>
+                  <thead>
+                    <tr>
+                      <th style={th}>Staff</th>
+                      {monthlyBreakdown.months.map(mk => <th key={mk} style={{ ...th, textAlign: 'right' as const }}>{monthLabel(mk)}</th>)}
+                      <th style={{ ...th, textAlign: 'right' as const, color: '#1d4ed8' }}>Overall</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {monthlyBreakdown.staffList.map(name => {
+                      const totalGsv = monthlyBreakdown.months.reduce((s, mk) => s + (monthlyBreakdown.grid[name]?.[mk]?.gsv || 0), 0);
+                      const totalBills = monthlyBreakdown.months.reduce((s, mk) => s + (monthlyBreakdown.grid[name]?.[mk]?.bills.size || 0), 0);
+                      const overallAvpt = totalBills ? Math.round(totalGsv / totalBills) : 0;
+                      return (
+                        <tr key={name}>
+                          <td style={{ ...td, fontWeight: 600 }}>{name}</td>
+                          {monthlyBreakdown.months.map(mk => {
+                            const cell = monthlyBreakdown.grid[name]?.[mk];
+                            if (!cell || cell.bills.size === 0) return <td key={mk} style={{ ...tdR, color: 'var(--text2)' }}>—</td>;
+                            const avpt = Math.round(cell.gsv / cell.bills.size);
+                            return (
+                              <td key={mk} style={{ ...tdR, fontWeight: 600, color: avpt >= 3000 ? 'var(--green)' : avpt >= 2000 ? '#d97706' : 'var(--red)' }}>
+                                {fmtRs(avpt)}
+                              </td>
+                            );
+                          })}
+                          <td style={{ ...tdR, fontWeight: 700, color: overallAvpt >= 3000 ? 'var(--green)' : overallAvpt >= 2000 ? '#d97706' : 'var(--red)' }}>
+                            {overallAvpt ? fmtRs(overallAvpt) : '—'}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  <tfoot>
+                    <tr style={{ background: 'var(--bg2)', fontWeight: 700 }}>
+                      <td style={td}>Store Avg</td>
+                      {monthlyBreakdown.months.map(mk => {
+                        const mt = monthlyBreakdown.monthTotals[mk];
+                        const avpt = mt.bills.size ? Math.round(mt.gsv / mt.bills.size) : 0;
+                        return <td key={mk} style={{ ...tdR, color: avpt >= 3000 ? 'var(--green)' : avpt >= 2000 ? '#d97706' : 'var(--red)' }}>{fmtRs(avpt)}</td>;
+                      })}
+                      <td style={{ ...tdR, color: '#1d4ed8' }}>
+                        {(() => { const tb = new Set(salesRows.map(r => r.InvoiceNumber)).size; const tg = salesRows.reduce((s,r)=>s+r.GSV,0); return tb ? fmtRs(Math.round(tg/tb)) : '—'; })()}
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+
+              {/* AUPT matrix */}
+              <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 4, color: 'var(--text2)' }}>AUPT — Avg Units Per Transaction (Qty ÷ Bills) by Staff × Month</div>
+              <div style={{ fontSize: 11, color: 'var(--text2)', marginBottom: 8 }}>Higher = better; target ≥ 4 units</div>
+              <div className="tbl-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th style={th}>Staff</th>
+                      {monthlyBreakdown.months.map(mk => <th key={mk} style={{ ...th, textAlign: 'right' as const }}>{monthLabel(mk)}</th>)}
+                      <th style={{ ...th, textAlign: 'right' as const, color: '#1d4ed8' }}>Overall</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {monthlyBreakdown.staffList.map(name => {
+                      const totalQty = monthlyBreakdown.months.reduce((s, mk) => s + (monthlyBreakdown.grid[name]?.[mk]?.qty || 0), 0);
+                      const totalBills = monthlyBreakdown.months.reduce((s, mk) => s + (monthlyBreakdown.grid[name]?.[mk]?.bills.size || 0), 0);
+                      const overallAupt = totalBills ? Math.round((totalQty / totalBills) * 100) / 100 : 0;
+                      return (
+                        <tr key={name}>
+                          <td style={{ ...td, fontWeight: 600 }}>{name}</td>
+                          {monthlyBreakdown.months.map(mk => {
+                            const cell = monthlyBreakdown.grid[name]?.[mk];
+                            if (!cell || cell.bills.size === 0) return <td key={mk} style={{ ...tdR, color: 'var(--text2)' }}>—</td>;
+                            const aupt = Math.round((cell.qty / cell.bills.size) * 100) / 100;
+                            return (
+                              <td key={mk} style={{ ...tdR, fontWeight: 600, color: aupt >= 4 ? 'var(--green)' : aupt >= 3 ? '#d97706' : 'var(--red)' }}>
+                                {aupt.toFixed(2)}
+                              </td>
+                            );
+                          })}
+                          <td style={{ ...tdR, fontWeight: 700, color: overallAupt >= 4 ? 'var(--green)' : overallAupt >= 3 ? '#d97706' : 'var(--red)' }}>
+                            {overallAupt ? overallAupt.toFixed(2) : '—'}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  <tfoot>
+                    <tr style={{ background: 'var(--bg2)', fontWeight: 700 }}>
+                      <td style={td}>Store Avg</td>
+                      {monthlyBreakdown.months.map(mk => {
+                        const mt = monthlyBreakdown.monthTotals[mk];
+                        const totalQty = salesRows.filter(r => r.MonthKey === mk).reduce((s,r)=>s+r.Quantity,0);
+                        const aupt = mt.bills.size ? Math.round((totalQty / mt.bills.size) * 100) / 100 : 0;
+                        return <td key={mk} style={{ ...tdR, color: aupt >= 4 ? 'var(--green)' : aupt >= 3 ? '#d97706' : 'var(--red)' }}>{aupt.toFixed(2)}</td>;
+                      })}
+                      <td style={{ ...tdR, color: '#1d4ed8' }}>
+                        {(() => { const tb = new Set(salesRows.map(r => r.InvoiceNumber)).size; const tq = salesRows.reduce((s,r)=>s+r.Quantity,0); return tb ? (Math.round((tq/tb)*100)/100).toFixed(2) : '—'; })()}
+                      </td>
+                    </tr>
+                  </tfoot>
                 </table>
               </div>
             </div>
