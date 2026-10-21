@@ -21,6 +21,7 @@ import ManualBilling from './pages/ManualBilling';
 import Cashbook from './pages/Cashbook';
 import POD from './pages/POD';
 import RetailMatrix from './pages/RetailMatrix';
+import OrderingGap from './pages/OrderingGap';
 import StoreRoom from './pages/StoreRoom';
 import StoreRoomDetail from './pages/StoreRoomDetail';
 
@@ -59,6 +60,7 @@ export default function App() {
                   <Route path="cashbook" element={<Cashbook />} />
                   <Route path="pod" element={<POD />} />
                   <Route path="matrix" element={<RetailMatrix />} />
+                  <Route path="ordering-gap" element={<OrderingGap />} />
                   <Route path="billing" element={<ManualBilling />} />
                   <Route path="storeroom" element={<StoreRoom />} />
                   <Route path="storeroom/:id" element={<StoreRoomDetail />} />

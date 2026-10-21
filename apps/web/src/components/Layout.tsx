@@ -26,6 +26,7 @@ const NAV = [
   { path: '/members',  icon: '👥', label: 'Members' },
   { path: '/pod',      icon: '📚', label: 'POD Training' },
   { path: '/matrix',   icon: '📊', label: 'Retail Matrix' },
+  { path: '/ordering-gap', icon: '🛒', label: 'Ordering Gap' },
   { section: 'ADMIN' },
   { path: '/staff',    icon: '👤', label: 'Staff' },
   { path: '/stores',   icon: '🏪', label: 'Stores', superOnly: true },
@@ -46,7 +47,7 @@ const PAGE_TITLES: Record<string, string> = {
   '/cashbook':  'Cashbook',     '/billing':  'Manual Billing',
   '/sr':        'Stock Return', '/eoss':     'EOSS',
   '/members':   'Members',      '/pod':      'POD Training',
-  '/matrix':    'Retail Matrix','/staff':    'Staff',
+  '/matrix':    'Retail Matrix','/ordering-gap': 'Ordering Gap','/staff':    'Staff',
   '/stores':    'Stores',   '/storeroom': 'Store Room',
 };
 
