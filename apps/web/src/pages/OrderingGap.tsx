@@ -1,6 +1,7 @@
 import React, { useState, useCallback } from 'react';
 
 interface OGRow {
+  category: string;
   subcategory: string;
   afsSize: string;
   soldQty: number;
@@ -12,8 +13,6 @@ interface OGRow {
   gap: number;
   status: 'critical' | 'low' | 'ok' | 'overstock' | 'dump';
 }
-
-const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
 function monthKey(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
@@ -75,6 +74,7 @@ export default function OrderingGap() {
   const [ogLoading, setOgLoading] = useState(false);
   const [ogError, setOgError] = useState<string | null>(null);
   const [ogStatusFilter, setOgStatusFilter] = useState<'all'|'critical'|'low'|'ok'|'overstock'|'dump'>('all');
+  const [ogCatFilter, setOgCatFilter] = useState('All');
   const [ogSubcatFilter, setOgSubcatFilter] = useState('All');
 
   const card = { background: 'var(--bg1)', border: '1px solid var(--border)', borderRadius: 10, padding: 16, marginBottom: 16 };
@@ -120,6 +120,7 @@ export default function OrderingGap() {
       // 2. Parse Secondary Stock XLSX — Sheet2
       const ssMap = new Map<string, number>();
       const ssSubNameMap = new Map<string, string>();
+      const ssCatMap = new Map<string, string>(); // ogKey → category
       await new Promise<void>((res, rej) => {
         const fr = new FileReader();
         fr.onload = ev => {
@@ -131,10 +132,12 @@ export default function OrderingGap() {
             for (const r of rows2) {
               const sub: string = (r['SubCategoryName'] || r['SubCategory Name'] || r['SubcategoryName'] || '').trim();
               const size: string = (r['AFS Size'] || r['AFSSize'] || r['Size'] || '').trim();
+              const cat: string = (r['CategoryName'] || r['Category Name'] || r['Category'] || '').trim();
               const stock = parseFloat(r['CurrentStock'] || r['Current Stock'] || '0') || 0;
               if (!sub || !size) continue;
               const k = ogKey(sub, size);
               if (!ssSubNameMap.has(k)) ssSubNameMap.set(k, sub);
+              if (cat && !ssCatMap.has(k)) ssCatMap.set(k, cat);
               if (stock > 0) ssMap.set(k, (ssMap.get(k) || 0) + stock);
             }
             res();
@@ -150,6 +153,7 @@ export default function OrderingGap() {
       const asrMap = new Map<string, number>();
       const asr3Map = new Map<string, number>();
       const asrSubNameMap = new Map<string, string>();
+      const asrCatMap = new Map<string, string>(); // ogKey → category
       await new Promise<void>((res, rej) => {
         const fr = new FileReader();
         fr.onload = ev => {
@@ -158,6 +162,7 @@ export default function OrderingGap() {
             for (const r of raw) {
               const sub: string = (r['SubCategory'] || r['Sub Category'] || r['Subcategory'] || '').trim();
               const size: string = (r['AFSSize'] || r['AFS Size'] || r['Size'] || '').trim();
+              const cat: string = (r['Category'] || '').trim();
               const qty = parseFloat(r['Quantity'] || '0') || 0;
               if (!sub || !size || qty <= 0) continue;
               const dateStr: string = (r['BillDate'] || r['Bill Date'] || r['Date'] || '').trim();
@@ -169,6 +174,7 @@ export default function OrderingGap() {
                 if (LAST3_MONTHS.has(mk)) asr3Map.set(k, (asr3Map.get(k) || 0) + qty);
               }
               if (!asrSubNameMap.has(k)) asrSubNameMap.set(k, sub);
+              if (cat && !asrCatMap.has(k)) asrCatMap.set(k, cat);
             }
             res();
           } catch (e: any) { rej(new Error('ASR parse error: ' + e.message)); }
@@ -190,6 +196,7 @@ export default function OrderingGap() {
         const monthsCover = monthlyAvg > 0 ? stock / monthlyAvg : (stock > 0 ? 999 : 0);
         const [rawSub, rawSize] = k.split('||');
         const subName = ssSubNameMap.get(k) || asrSubNameMap.get(k) || rawSub;
+        const catName = ssCatMap.get(k) || asrCatMap.get(k) || '';
 
         const isOverstock = stock >= monthlyAvg * 5 && stock > 0;
         const expectedLast3 = monthlyAvg * 3;
@@ -203,11 +210,13 @@ export default function OrderingGap() {
         else if (isOverstock) status = 'overstock';
         else status = 'ok';
 
-        result.push({ subcategory: subName, afsSize: rawSize, soldQty: Math.round(sold), last3Qty: Math.round(last3), monthlyAvg: Math.round(monthlyAvg * 10) / 10, currentStock: Math.round(stock), monthsCover: Math.round(monthsCover * 10) / 10, portalCount: portal, gap, status });
+        result.push({ category: catName, subcategory: subName, afsSize: rawSize, soldQty: Math.round(sold), last3Qty: Math.round(last3), monthlyAvg: Math.round(monthlyAvg * 10) / 10, currentStock: Math.round(stock), monthsCover: Math.round(monthsCover * 10) / 10, portalCount: portal, gap, status });
       }
       const statusOrder = { critical: 0, low: 1, dump: 2, overstock: 3, ok: 4 };
       result.sort((a, b) => statusOrder[a.status] - statusOrder[b.status] || b.gap - a.gap);
       setOgData(result);
+      setOgCatFilter('All');
+      setOgSubcatFilter('All');
     } catch (e: any) { setOgError(e.message); }
     setOgLoading(false);
   }, [ogCSFile, ogSSFile, ogASRFile]);
@@ -226,13 +235,26 @@ export default function OrderingGap() {
     </div>
   );
 
+  // Derive category list from data
+  const ogCats = ogData
+    ? ['All', ...Array.from(new Set(ogData.map(r => r.category).filter(Boolean))).sort()]
+    : ['All'];
+
+  // Subcategory list filtered by selected category
+  const ogSubcats = ogData
+    ? ['All', ...Array.from(new Set(
+        ogData
+          .filter(r => ogCatFilter === 'All' || r.category === ogCatFilter)
+          .map(r => r.subcategory)
+      )).sort()]
+    : ['All'];
+
   const filteredOG = (ogData ?? []).filter(r => {
     if (ogStatusFilter !== 'all' && r.status !== ogStatusFilter) return false;
+    if (ogCatFilter !== 'All' && r.category !== ogCatFilter) return false;
     if (ogSubcatFilter !== 'All' && r.subcategory !== ogSubcatFilter) return false;
     return true;
   });
-
-  const ogSubcats = ogData ? ['All', ...Array.from(new Set(ogData.map(r => r.subcategory))).sort()] : ['All'];
 
   const statusBadge = (s: OGRow['status']) => {
     const map: Record<string, [string, string]> = {
@@ -246,15 +268,19 @@ export default function OrderingGap() {
     return <span style={badge(col)}>{ico} {s.charAt(0).toUpperCase() + s.slice(1)}</span>;
   };
 
+  // Summary counts based on current filters
+  const summaryBase = ogData ?? [];
   const summary = ogData ? {
-    critical:  ogData.filter(r => r.status === 'critical').length,
-    low:       ogData.filter(r => r.status === 'low').length,
-    dump:      ogData.filter(r => r.status === 'dump').length,
-    overstock: ogData.filter(r => r.status === 'overstock').length,
-    ok:        ogData.filter(r => r.status === 'ok').length,
-    totalGap:  ogData.filter(r => r.gap > 0).reduce((s, r) => s + r.gap, 0),
-    dumpUnits: ogData.filter(r => r.status === 'dump').reduce((s, r) => s + r.currentStock, 0),
+    critical:  summaryBase.filter(r => r.status === 'critical').length,
+    low:       summaryBase.filter(r => r.status === 'low').length,
+    dump:      summaryBase.filter(r => r.status === 'dump').length,
+    overstock: summaryBase.filter(r => r.status === 'overstock').length,
+    ok:        summaryBase.filter(r => r.status === 'ok').length,
+    totalGap:  summaryBase.filter(r => r.gap > 0).reduce((s, r) => s + r.gap, 0),
+    dumpUnits: summaryBase.filter(r => r.status === 'dump').reduce((s, r) => s + r.currentStock, 0),
   } : null;
+
+  const showCatCol = ogData && ogData.some(r => r.category);
 
   return (
     <div style={{ maxWidth: 1200, margin: '0 auto' }}>
@@ -310,9 +336,8 @@ export default function OrderingGap() {
         <div style={card}>
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 14, alignItems: 'center' }}>
             <div style={{ fontWeight: 700, fontSize: 14, marginRight: 6 }}>Ordering Gap by SKU</div>
-            <select value={ogSubcatFilter} onChange={e => setOgSubcatFilter(e.target.value)} style={selectStyle}>
-              {ogSubcats.map(s => <option key={s}>{s}</option>)}
-            </select>
+
+            {/* Status filter */}
             <select value={ogStatusFilter} onChange={e => setOgStatusFilter(e.target.value as any)} style={selectStyle}>
               <option value="all">All Statuses</option>
               <option value="critical">🔴 Critical</option>
@@ -321,26 +346,59 @@ export default function OrderingGap() {
               <option value="overstock">🔵 Overstock</option>
               <option value="ok">🟢 OK</option>
             </select>
+
+            {/* Category filter */}
+            {ogCats.length > 1 && (
+              <select
+                value={ogCatFilter}
+                onChange={e => { setOgCatFilter(e.target.value); setOgSubcatFilter('All'); }}
+                style={selectStyle}
+              >
+                {ogCats.map(c => <option key={c}>{c}</option>)}
+              </select>
+            )}
+
+            {/* Subcategory filter — scoped to selected category */}
+            <select
+              value={ogSubcatFilter}
+              onChange={e => setOgSubcatFilter(e.target.value)}
+              style={selectStyle}
+            >
+              {ogSubcats.map(s => <option key={s}>{s}</option>)}
+            </select>
+
             <span style={{ fontSize: 12, color: 'var(--text2)', marginLeft: 'auto' }}>{filteredOG.length} rows</span>
           </div>
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
                 <tr style={{ background: 'var(--bg2)' }}>
-                  {['Sub Category', 'AFS Size', 'Sold (Apr–Oct)', 'Last 3M (A/S/O)', 'Mo. Avg', 'Curr Stock', 'Mo. Cover', 'Gap', ...(ogCSFile ? ['Portal'] : []), 'Status'].map(h => (
-                    <th key={h} style={{ ...th, textAlign: h === 'Sub Category' || h === 'AFS Size' ? 'left' : 'right', ...(h === 'Status' ? { textAlign: 'center' as const } : {}) }}>{h}</th>
+                  {[
+                    ...(showCatCol ? ['Category'] : []),
+                    'Sub Category', 'AFS Size',
+                    'Sold (Apr–Oct)', 'Last 3M (A/S/O)', 'Mo. Avg',
+                    'Curr Stock', 'Mo. Cover', 'Gap',
+                    ...(ogCSFile ? ['Portal'] : []),
+                    'Status'
+                  ].map(h => (
+                    <th key={h} style={{
+                      ...th,
+                      textAlign: ['Category', 'Sub Category', 'AFS Size', 'Status'].includes(h) ? 'left' : 'right',
+                      ...(h === 'Status' ? { textAlign: 'center' as const } : {})
+                    }}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {filteredOG.length === 0
-                  ? <tr><td colSpan={9} style={{ ...td, textAlign: 'center', color: 'var(--text2)', padding: 32 }}>No rows match current filters</td></tr>
+                  ? <tr><td colSpan={12} style={{ ...td, textAlign: 'center', color: 'var(--text2)', padding: 32 }}>No rows match current filters</td></tr>
                   : filteredOG.map((r, i) => {
                     const gapCol = r.gap > 0 ? 'var(--red)' : 'var(--text2)';
                     const coverCol = r.monthsCover >= 5 ? '#7c3aed' : r.monthsCover >= 3 ? '#d97706' : r.monthsCover > 0 ? 'var(--green)' : 'var(--text2)';
                     const isDumpRow = r.status === 'dump';
                     return (
                       <tr key={i} style={{ background: isDumpRow ? 'rgba(124,58,237,0.06)' : i % 2 === 0 ? 'var(--bg1)' : 'var(--bg2)' }}>
+                        {showCatCol && <td style={td}>{r.category}</td>}
                         <td style={td}>{r.subcategory}</td>
                         <td style={td}>{r.afsSize}</td>
                         <td style={tdR}>{r.soldQty}</td>
@@ -364,7 +422,7 @@ export default function OrderingGap() {
               {filteredOG.length > 0 && (
                 <tfoot>
                   <tr style={{ background: 'var(--bg2)', fontWeight: 700 }}>
-                    <td style={{ ...td, fontWeight: 700 }} colSpan={2}>Total ({filteredOG.length} SKUs)</td>
+                    <td style={{ ...td, fontWeight: 700 }} colSpan={showCatCol ? 3 : 2}>Total ({filteredOG.length} SKUs)</td>
                     <td style={{ ...tdR, fontWeight: 700 }}>{filteredOG.reduce((s,r)=>s+r.soldQty,0)}</td>
                     <td style={{ ...tdR, fontWeight: 700, color: 'var(--red)' }}>{filteredOG.reduce((s,r)=>s+r.last3Qty,0)}</td>
                     <td style={{ ...tdR, color: 'var(--text2)' }}>—</td>
