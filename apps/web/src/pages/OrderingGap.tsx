@@ -11,13 +11,11 @@ interface OGRow {
   last3Qty: number;
   monthlyAvg: number;
   currentStock: number;
-  minRequired: number;   // for apparel = monthlyAvg × 4; for non-apparel = monthlyAvg × 1.5
+  minRequired: number;   // for apparel = soldQty; for non-apparel = monthlyAvg × 1.5
   monthsCover: number;
   portalCount: number;
   gap: number;           // positive = need to order
-  inTransitQty: number;  // units already on the way
-  effectiveGap: number;  // gap after subtracting in-transit
-  status: 'critical' | 'low' | 'ok' | 'overstock' | 'dump' | 'in-transit';
+  status: 'critical' | 'low' | 'ok' | 'overstock' | 'dump';
 }
 
 interface SalesEntry { sold: number; last3: number; }
@@ -97,31 +95,21 @@ function makeKey3(cat: string, sub: string, size: string) {
   return [cat, sub, size].map(x => x.trim().toLowerCase()).join('||');
 }
 
-/** Normalise product ID for transit matching */
-function normPid(id: string): string { return id.trim().toLowerCase(); }
-
 /* ── Component ──────────────────────────────────────────── */
 export default function OrderingGap() {
   const [ogCSFile, setOgCSFile]   = useState<File | null>(null);
   const [ogSSFile, setOgSSFile]   = useState<File | null>(null);
   const [ogASRFile, setOgASRFile] = useState<File | null>(null);
-  const [ogITFile, setOgITFile]   = useState<File | null>(null);
   const [ogData,   setOgData]     = useState<OGRow[] | null>(null);
   const [ogLoading, setOgLoading] = useState(false);
   const [ogError,   setOgError]   = useState<string | null>(null);
 
   // Filters
-  const [ogStatusFilter, setOgStatusFilter] = useState<'all'|'critical'|'low'|'ok'|'overstock'|'dump'|'in-transit'>('all');
+  const [ogStatusFilter, setOgStatusFilter] = useState<'all'|'critical'|'low'|'ok'|'overstock'|'dump'>('all');
   const [ogCatFilter,    setOgCatFilter]    = useState('All');
   const [ogSubcatFilter, setOgSubcatFilter] = useState('All');
   const [ogGenderFilter, setOgGenderFilter] = useState('All');
   const [ogSleeveFilter, setOgSleeveFilter] = useState('All');
-  const tableRef = React.useRef<HTMLDivElement>(null);
-
-  const handleCardClick = (filterVal: string) => {
-    setOgStatusFilter(filterVal as any);
-    setTimeout(() => tableRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60);
-  };
 
   /* ── Styles ─── */
   const card = { background: 'var(--bg1)', border: '1px solid var(--border)', borderRadius: 10, padding: 16, marginBottom: 16 };
@@ -169,13 +157,10 @@ export default function OrderingGap() {
 
       /* ── 2. Secondary Stock XLSX — read the ACTUAL data sheet ── */
       // Key: makeKey5(cat,sub,size,gender,sleeve) → stock count
-      // Also store display names + productId mapping for transit matching
+      // Also store display names
       interface SSEntry { cat: string; sub: string; size: string; gender: string; sleeve: string; stock: number; }
       const ssEntries: SSEntry[] = [];
       const ssMap = new Map<string, number>(); // key5 → stock
-
-      // For in-transit matching: key5 → Set of productIds
-      const key5ToProducts = new Map<string, Set<string>>();
 
       await new Promise<void>((res, rej) => {
         const fr = new FileReader();
@@ -200,20 +185,9 @@ export default function OrderingGap() {
               const stock  = parseFloat(String(r['CurrentStock'] || r['Current Stock'] || '0')) || 0;
               if (!sub || !size) continue;
 
-              // Capture productId for transit matching (Product ID alone is size-specific in this system)
-              const productId = String(r['ProductID'] || r['Product ID'] || r['ArticleCode'] || r['Article Code'] || r['ItemCode'] || r['SKU'] || '').trim();
-
               const k5 = makeKey5(cat, sub, size, gender, sleeve);
               ssMap.set(k5, (ssMap.get(k5) || 0) + stock);
               ssEntries.push({ cat, sub, size, gender, sleeve, stock });
-
-              // Build productId→key5 mapping for transit lookup
-              if (productId) {
-                const pid = normPid(productId);
-                const existing = key5ToProducts.get(k5);
-                if (existing) existing.add(pid);
-                else key5ToProducts.set(k5, new Set([pid]));
-              }
             }
             res();
           } catch (e: any) { rej(new Error('Secondary Stock parse error: ' + e.message)); }
@@ -291,65 +265,7 @@ export default function OrderingGap() {
         );
       }
 
-      /* ── 4. In Transit Stock (optional) — parse ProductID + AgeGroup + Qty ── */
-      // transitMap: productId||ageGroup → transitQty
-      const transitMap = new Map<string, number>();
-      const itLoaded = !!ogITFile;
-
-      if (ogITFile) {
-        await new Promise<void>((res, rej) => {
-          const fr = new FileReader();
-          fr.onload = ev => {
-            try {
-              let rows: any[] = [];
-              // Support both XLSX/XLS and CSV
-              const fileName = ogITFile.name.toLowerCase();
-              if (fileName.endsWith('.csv')) {
-                rows = parseCSV(ev.target?.result as string);
-              } else {
-                const wb = XLSX.read(ev.target?.result, { type: 'binary' });
-                // Try to find a transit-related sheet, else use first sheet
-                const sheetName =
-                  wb.SheetNames.find((n: string) => /transit|intransit|in.transit/i.test(n)) ??
-                  wb.SheetNames[0];
-                const ws = wb.Sheets[sheetName];
-                rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
-              }
-
-              for (const r of rows) {
-                const pid = (
-                  r['Product ID']   || r['ProductID']     ||
-                  r['ArticleCode']  || r['Article Code']  ||
-                  r['ItemCode']     || r['Item Code']     ||
-                  r['SKU']          || r['Barcode']       || ''
-                ).trim();
-
-                // IT sheet uses 'Quantity' = actual in-transit qty (skip 0 = not yet dispatched)
-                const qty = parseFloat(String(
-                  r['Quantity']       || r['InTransitQty']    ||
-                  r['In Transit Qty'] || r['TransitQty']      ||
-                  r['Transit Qty']    || r['Qty']             ||
-                  r['QtyInTransit']   || '0'
-                )) || 0;
-
-                if (!pid || qty <= 0) continue;
-                const key = normPid(pid);
-                transitMap.set(key, (transitMap.get(key) || 0) + qty);
-              }
-              res();
-            } catch (e: any) { rej(new Error('In Transit parse error: ' + e.message)); }
-          };
-          fr.onerror = () => rej(new Error('Failed to read In Transit file'));
-          // Use readAsBinaryString for XLSX, readAsText for CSV
-          if (ogITFile.name.toLowerCase().endsWith('.csv')) {
-            fr.readAsText(ogITFile);
-          } else {
-            fr.readAsBinaryString(ogITFile);
-          }
-        });
-      }
-
-      /* ── 5. Build dimensional stock summary from SS ── */
+      /* ── 4. Build dimensional stock summary from SS ── */
       // Aggregate by key5 (already done in ssMap above)
       // We need a deduplicated list of (cat, sub, size, gender, sleeve) entries from SS
       const ssAgg = new Map<string, SSEntry & { stock: number }>();
@@ -363,7 +279,7 @@ export default function OrderingGap() {
         }
       }
 
-      /* ── 6. Also include rows from ASR that have no SS entry ── */
+      /* ── 5. Also include rows from ASR that have no SS entry ── */
       // (i.e. items sold out — stock = 0, but sold > 0, so gap = sold)
       const asrOnlyKeys = new Set<string>();
       for (const [k3, meta] of asrMeta) {
@@ -374,23 +290,11 @@ export default function OrderingGap() {
         }
       }
 
-      /* ── 7. Assemble final OGRow array ── */
+      /* ── 6. Assemble final OGRow array ── */
       const result: OGRow[] = [];
 
-      // Helper: compute in-transit qty for a given key5 by summing all productIds that map to it
-      function getTransitQty(k5: string): number {
-        if (!itLoaded || transitMap.size === 0) return 0;
-        const pids = key5ToProducts.get(k5);
-        if (!pids || pids.size === 0) return 0;
-        let total = 0;
-        for (const pid of pids) {
-          total += transitMap.get(pid) || 0;
-        }
-        return total;
-      }
-
       // From SS entries (has current stock)
-      for (const [k5key, e] of ssAgg) {
+      for (const [, e] of ssAgg) {
         const sales      = getSales(e.cat, e.sub, e.size, e.gender, e.sleeve);
         const sold       = sales.sold;
         const last3      = sales.last3;
@@ -400,7 +304,7 @@ export default function OrderingGap() {
 
         // Gap logic
         const minRequired = apparel
-          ? monthlyAvg * 4                  // apparel: maintain 4× monthly avg (≈ 4 months cover)
+          ? sold                         // apparel: need to replenish what sold
           : monthlyAvg * 1.5;            // non-apparel: maintain 1.5× monthly avg
         const gap         = Math.round(minRequired - stock);
         const monthsCover = monthlyAvg > 0 ? stock / monthlyAvg : (stock > 0 ? 999 : 0);
@@ -410,16 +314,8 @@ export default function OrderingGap() {
         const isOverstock = stock >= monthlyAvg * 5 && stock > 0 && monthlyAvg > 0;
         const isDump      = isOverstock && (last3 <= 2 || (monthlyAvg > 0 && last3 < monthlyAvg * 3 * 0.5));
 
-        // In-transit adjustment
-        const k5 = makeKey5(e.cat, e.sub, e.size, e.gender, e.sleeve);
-        const inTransitQty = Math.round(getTransitQty(k5));
-        const effectiveGap = gap > 0 ? Math.max(0, gap - inTransitQty) : Math.max(0, gap);
-
         let status: OGRow['status'];
-        // If gap > 0 but fully covered by transit → in-transit
-        if (gap > 0 && itLoaded && inTransitQty > 0 && effectiveGap === 0) {
-          status = 'in-transit';
-        } else if (gap > 0 && csLoaded && portal > 0) status = 'critical';
+        if (gap > 0 && csLoaded && portal > 0) status = 'critical';
         else if (gap > 0 && csLoaded && portal === 0) status = 'low';
         else if (gap > 0 && !csLoaded) status = 'critical';
         else if (isDump) status = 'dump';
@@ -440,8 +336,6 @@ export default function OrderingGap() {
           monthsCover:  Math.round(monthsCover * 10) / 10,
           portalCount:  portal,
           gap,
-          inTransitQty,
-          effectiveGap,
           status,
         });
       }
@@ -454,20 +348,12 @@ export default function OrderingGap() {
         const last3   = sales.last3;
         const avg     = sold / ASR_TOTAL_MONTHS;
         const apparel = isApparel(meta.cat);
-        const minReq  = apparel ? avg * 4 : avg * 1.5;
+        const minReq  = apparel ? sold : avg * 1.5;
         const gap     = Math.round(minReq);    // stock = 0
         const portal  = csMap.get(k3) || 0;
 
-        // For ASR-only rows, we don't have a key5 to look up in key5ToProducts
-        // so transit qty defaults to 0 unless we can find a product combo
-        const k5 = makeKey5(meta.cat, meta.sub, meta.size, meta.gender, normSleeve(meta.sleeve));
-        const inTransitQty = Math.round(getTransitQty(k5));
-        const effectiveGap = gap > 0 ? Math.max(0, gap - inTransitQty) : 0;
-
         let status: OGRow['status'];
-        if (gap > 0 && itLoaded && inTransitQty > 0 && effectiveGap === 0) {
-          status = 'in-transit';
-        } else if (gap > 0 && csLoaded && portal > 0) status = 'critical';
+        if (gap > 0 && csLoaded && portal > 0) status = 'critical';
         else if (gap > 0 && csLoaded && portal === 0) status = 'low';
         else if (gap > 0 && !csLoaded) status = 'critical';
         else status = 'ok';
@@ -486,14 +372,12 @@ export default function OrderingGap() {
           monthsCover:  0,
           portalCount:  portal,
           gap,
-          inTransitQty,
-          effectiveGap,
           status,
         });
       }
 
-      const statusOrder: Record<string, number> = { critical: 0, low: 1, dump: 2, overstock: 3, 'in-transit': 4, ok: 5 };
-      result.sort((a, b) => (statusOrder[a.status] ?? 9) - (statusOrder[b.status] ?? 9) || b.gap - a.gap);
+      const statusOrder = { critical: 0, low: 1, dump: 2, overstock: 3, ok: 4 };
+      result.sort((a, b) => statusOrder[a.status] - statusOrder[b.status] || b.gap - a.gap);
       setOgData(result);
       setOgCatFilter('All');
       setOgSubcatFilter('All');
@@ -501,25 +385,20 @@ export default function OrderingGap() {
       setOgSleeveFilter('All');
     } catch (e: any) { setOgError(e.message); }
     setOgLoading(false);
-  }, [ogCSFile, ogSSFile, ogASRFile, ogITFile]);
+  }, [ogCSFile, ogSSFile, ogASRFile]);
 
   /* ── Upload card ── */
   const fileInputStyle: React.CSSProperties = { display: 'none' };
-  const uploadCard = (label: string, icon: string, desc: string, file: File | null, inputId: string, onChange: (f: File | null) => void, optional?: boolean) => (
-    <div style={{ ...card, flex: 1, minWidth: 220, cursor: 'pointer', marginBottom: 0, position: 'relative' as const }} onClick={() => document.getElementById(inputId)?.click()}>
+  const uploadCard = (label: string, icon: string, desc: string, file: File | null, inputId: string, onChange: (f: File | null) => void) => (
+    <div style={{ ...card, flex: 1, minWidth: 220, cursor: 'pointer', marginBottom: 0 }} onClick={() => document.getElementById(inputId)?.click()}>
       <input id={inputId} type="file" style={fileInputStyle} accept=".xlsx,.xls,.csv"
         onChange={e => onChange(e.target.files?.[0] ?? null)} />
-      {optional && (
-        <div style={{ position: 'absolute', top: 10, right: 10, fontSize: 10, background: 'var(--bg2)', color: 'var(--text2)', padding: '1px 6px', borderRadius: 8, fontWeight: 600 }}>
-          OPTIONAL
-        </div>
-      )}
       <div style={{ fontSize: 22, marginBottom: 6 }}>{icon}</div>
       <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 4 }}>{label}</div>
       <div style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 8 }}>{desc}</div>
       {file
         ? <div style={{ fontSize: 12, color: 'var(--green)', fontWeight: 600 }}>✔ {file.name}</div>
-        : <div style={{ fontSize: 12, color: 'var(--text2)' }}>Click to upload{optional ? ' (skip to ignore)' : ''}</div>}
+        : <div style={{ fontSize: 12, color: 'var(--text2)' }}>Click to upload</div>}
     </div>
   );
 
@@ -557,29 +436,25 @@ export default function OrderingGap() {
   /* ── Status badge ── */
   const statusBadge = (s: OGRow['status']) => {
     const map: Record<string, [string, string]> = {
-      critical:    ['🔴', '#dc2626'],
-      low:         ['🟡', '#d97706'],
-      ok:          ['🟢', '#059669'],
-      overstock:   ['🔵', '#2563eb'],
-      dump:        ['💀', '#7c3aed'],
-      'in-transit':['🚚', '#0891b2'],
+      critical:  ['🔴', '#dc2626'],
+      low:       ['🟡', '#d97706'],
+      ok:        ['🟢', '#059669'],
+      overstock: ['🔵', '#2563eb'],
+      dump:      ['💀', '#7c3aed'],
     };
     const [ico, col] = map[s] ?? ['⬜', 'var(--text2)'];
-    return <span style={badge(col)}>{ico} {s === 'in-transit' ? 'In Transit' : s.charAt(0).toUpperCase() + s.slice(1)}</span>;
+    return <span style={badge(col)}>{ico} {s.charAt(0).toUpperCase() + s.slice(1)}</span>;
   };
 
   /* ── Summary counts ── */
-  const hasTransit = ogData?.some(r => r.inTransitQty > 0) ?? false;
   const summary = ogData ? {
-    critical:    ogData.filter(r => r.status === 'critical').length,
-    low:         ogData.filter(r => r.status === 'low').length,
-    dump:        ogData.filter(r => r.status === 'dump').length,
-    overstock:   ogData.filter(r => r.status === 'overstock').length,
-    ok:          ogData.filter(r => r.status === 'ok').length,
-    inTransit:   ogData.filter(r => r.status === 'in-transit').length,
-    totalGap:    ogData.filter(r => r.gap > 0).reduce((s, r) => s + r.gap, 0),
-    netGap:      ogData.filter(r => r.effectiveGap > 0).reduce((s, r) => s + r.effectiveGap, 0),
-    dumpUnits:   ogData.filter(r => r.status === 'dump').reduce((s, r) => s + r.currentStock, 0),
+    critical:  ogData.filter(r => r.status === 'critical').length,
+    low:       ogData.filter(r => r.status === 'low').length,
+    dump:      ogData.filter(r => r.status === 'dump').length,
+    overstock: ogData.filter(r => r.status === 'overstock').length,
+    ok:        ogData.filter(r => r.status === 'ok').length,
+    totalGap:  ogData.filter(r => r.gap > 0).reduce((s, r) => s + r.gap, 0),
+    dumpUnits: ogData.filter(r => r.status === 'dump').reduce((s, r) => s + r.currentStock, 0),
   } : null;
 
   /* ── Column visibility ── */
@@ -587,7 +462,6 @@ export default function OrderingGap() {
   const showGenderCol = Boolean(ogData?.some(r => r.gender));
   const showSleeveCol = Boolean(ogData?.some(r => r.sleeveLength));
   const showMinReq    = Boolean(ogData?.some(r => !isApparel(r.category)));
-  const showTransit   = hasTransit;
 
   return (
     <div style={{ maxWidth: 1400, margin: '0 auto' }}>
@@ -595,7 +469,7 @@ export default function OrderingGap() {
         <div>
           <div className="page-title">🛒 Ordering Gap</div>
           <div className="page-sub">
-            Identify stock gaps by Category → Sub-Category → Size → Gender → Sleeve — upload 2–4 reports to analyse
+            Identify stock gaps by Category → Sub-Category → Size → Gender → Sleeve — upload 2–3 reports to analyse
           </div>
         </div>
       </div>
@@ -604,10 +478,9 @@ export default function OrderingGap() {
       <div style={{ ...card, marginBottom: 16 }}>
         <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 12 }}>Upload Reports</div>
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-          {uploadCard('CS Inventory Report', '🏬', 'Portal availability — C&S North India (optional)', ogCSFile, 'og-cs-input', f => { setOgCSFile(f); setOgData(null); }, true)}
+          {uploadCard('CS Inventory Report', '🏬', 'Portal availability — C&S North India (optional)', ogCSFile, 'og-cs-input', f => { setOgCSFile(f); setOgData(null); })}
           {uploadCard('Secondary Stock Report', '📦', 'Current store floor stock (SecondaryStock sheet)', ogSSFile, 'og-ss-input', f => { setOgSSFile(f); setOgData(null); })}
           {uploadCard('ASR — Article Sale Report', '📈', 'What sold Apr–Oct 2026 (CSV)', ogASRFile, 'og-asr-input', f => { setOgASRFile(f); setOgData(null); })}
-          {uploadCard('In Transit Stock', '🚚', 'Products already ordered & coming — match by Product ID + Age Group (optional)', ogITFile, 'og-it-input', f => { setOgITFile(f); setOgData(null); }, true)}
         </div>
         <div style={{ marginTop: 14, display: 'flex', alignItems: 'center', gap: 12 }}>
           <button
@@ -629,9 +502,8 @@ export default function OrderingGap() {
         {/* Logic legend */}
         <div style={{ marginTop: 12, padding: '10px 14px', background: 'var(--bg2)', borderRadius: 8, fontSize: 12, color: 'var(--text2)' }}>
           <strong style={{ color: 'var(--text1)' }}>Gap logic:</strong>
-          {' '}<span style={{ color: '#2563eb' }}>Clothes &amp; Shoes (Apparel)</span> — gap = (Monthly Avg × 4) − Current Stock (4 months cover target) ·
-          {' '}<span style={{ color: '#059669' }}>Non-Apparel</span> — min required = Monthly Avg × 1.5 (maintain 6 weeks buffer); gap = Min Required − Current Stock ·
-          {' '}<span style={{ color: '#0891b2' }}>🚚 In Transit</span> — if a matching product (by Product ID + Age Group) is already coming, it's subtracted from the gap
+          {' '}<span style={{ color: '#2563eb' }}>Clothes &amp; Shoes (Apparel)</span> — gap = Sold Qty − Current Stock (need to replenish what sold) ·
+          {' '}<span style={{ color: '#059669' }}>Non-Apparel</span> — min required = Monthly Avg × 1.5 (maintain 6 weeks buffer); gap = Min Required − Current Stock
         </div>
       </div>
 
@@ -639,48 +511,25 @@ export default function OrderingGap() {
       {summary && (
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
           {[
-            { label: '🔴 Critical (order now)', val: summary.critical,  col: '#dc2626', filter: 'critical'    },
-            { label: '🟡 Low (not on portal)', val: summary.low,        col: '#d97706', filter: 'low'         },
-            ...(hasTransit ? [{ label: '🚚 Covered by Transit', val: summary.inTransit, col: '#0891b2', filter: 'in-transit' }] : []),
-            { label: '💀 Dump Stock SKUs',     val: summary.dump,       col: '#7c3aed', filter: 'dump'        },
-            { label: '💀 Dump Stock Units',    val: summary.dumpUnits,  col: '#7c3aed', filter: 'dump'        },
-            { label: '🔵 Overstock',           val: summary.overstock,  col: '#2563eb', filter: 'overstock'   },
-            { label: '🟢 OK / Sufficient',     val: summary.ok,         col: '#059669', filter: 'ok'          },
-            { label: '📦 Total Units Gap',     val: summary.totalGap,   col: 'var(--red)', filter: 'all'      },
-            ...(hasTransit && summary.netGap !== summary.totalGap
-              ? [{ label: '📦 Net Gap (after Transit)', val: summary.netGap, col: '#b45309', filter: 'all' }]
-              : []),
-          ].map(c => {
-            const isActive = ogStatusFilter === c.filter && c.filter !== 'all';
-            return (
-              <div
-                key={c.label}
-                onClick={() => handleCardClick(c.filter)}
-                style={{
-                  ...card,
-                  flex: '1 1 140px', marginBottom: 0, textAlign: 'center',
-                  cursor: 'pointer',
-                  outline: isActive ? `2px solid ${c.col}` : '2px solid transparent',
-                  outlineOffset: 2,
-                  transform: isActive ? 'translateY(-2px)' : 'none',
-                  transition: 'transform 0.15s, outline 0.15s',
-                  userSelect: 'none' as const,
-                }}
-              >
-                <div style={{ fontSize: 22, fontWeight: 800, color: c.col }}>{c.val}</div>
-                <div style={{ fontSize: 11, color: 'var(--text2)', marginTop: 4 }}>{c.label}</div>
-                <div style={{ fontSize: 10, color: c.col, marginTop: 3, opacity: 0.7 }}>
-                  {isActive ? '▲ active filter' : 'click to filter ↓'}
-                </div>
-              </div>
-            );
-          })}
+            { label: '🔴 Critical (order now)', val: summary.critical,  col: '#dc2626' },
+            { label: '🟡 Low (not on portal)', val: summary.low,       col: '#d97706' },
+            { label: '💀 Dump Stock SKUs',     val: summary.dump,      col: '#7c3aed' },
+            { label: '💀 Dump Stock Units',    val: summary.dumpUnits, col: '#7c3aed' },
+            { label: '🔵 Overstock',           val: summary.overstock, col: '#2563eb' },
+            { label: '🟢 OK / Sufficient',     val: summary.ok,        col: '#059669' },
+            { label: '📦 Total Units Gap',     val: summary.totalGap,  col: 'var(--red)' },
+          ].map(c => (
+            <div key={c.label} style={{ ...card, flex: '1 1 140px', marginBottom: 0, textAlign: 'center' }}>
+              <div style={{ fontSize: 22, fontWeight: 800, color: c.col }}>{c.val}</div>
+              <div style={{ fontSize: 11, color: 'var(--text2)', marginTop: 4 }}>{c.label}</div>
+            </div>
+          ))}
         </div>
       )}
 
       {/* ── Filters + Table ── */}
       {ogData && (
-        <div ref={tableRef} style={card}>
+        <div style={card}>
           {/* Filter bar */}
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 14, alignItems: 'center' }}>
             <div style={{ fontWeight: 700, fontSize: 14, marginRight: 4 }}>Ordering Gap by SKU</div>
@@ -690,7 +539,6 @@ export default function OrderingGap() {
               <option value="all">All Statuses</option>
               <option value="critical">🔴 Critical</option>
               <option value="low">🟡 Low</option>
-              {hasTransit && <option value="in-transit">🚚 In Transit</option>}
               <option value="dump">💀 Dump Stock</option>
               <option value="overstock">🔵 Overstock</option>
               <option value="ok">🟢 OK</option>
@@ -732,22 +580,20 @@ export default function OrderingGap() {
               <thead>
                 <tr style={{ background: 'var(--bg2)' }}>
                   {[
-                    ...(showCatCol    ? [{ h: 'Category',              r: false }] : []),
-                    { h: 'Sub Category',               r: false },
-                    { h: 'AFS Size',                   r: false },
-                    ...(showGenderCol ? [{ h: 'Gender',                r: false }] : []),
-                    ...(showSleeveCol ? [{ h: 'Sleeve',                r: false }] : []),
-                    { h: 'Sold (Apr–Oct)',              r: true  },
-                    { h: 'Last 3M (A/S/O)',             r: true  },
-                    { h: 'Mo. Avg',                    r: true  },
-                    { h: 'Curr Stock',                 r: true  },
-                    ...(showMinReq   ? [{ h: 'Min Req (1.5×)',         r: true  }] : []),
-                    { h: 'Mo. Cover',                  r: true  },
-                    { h: 'Gap',                        r: true  },
-                    ...(showTransit  ? [{ h: 'In Transit',             r: true  }] : []),
-                    ...(showTransit  ? [{ h: 'Net Gap',                r: true  }] : []),
-                    ...(ogCSFile     ? [{ h: 'Portal',                 r: true  }] : []),
-                    { h: 'Status',                     r: false },
+                    ...(showCatCol    ? [{ h: 'Category',          r: false }] : []),
+                    { h: 'Sub Category',         r: false },
+                    { h: 'AFS Size',             r: false },
+                    ...(showGenderCol ? [{ h: 'Gender',            r: false }] : []),
+                    ...(showSleeveCol ? [{ h: 'Sleeve',            r: false }] : []),
+                    { h: 'Sold (Apr–Oct)',        r: true  },
+                    { h: 'Last 3M (A/S/O)',       r: true  },
+                    { h: 'Mo. Avg',              r: true  },
+                    { h: 'Curr Stock',           r: true  },
+                    ...(showMinReq   ? [{ h: 'Min Req (1.5×)',     r: true  }] : []),
+                    { h: 'Mo. Cover',            r: true  },
+                    { h: 'Gap',                  r: true  },
+                    ...(ogCSFile     ? [{ h: 'Portal',             r: true  }] : []),
+                    { h: 'Status',               r: false },
                   ].map(({ h, r }) => (
                     <th key={h} style={{ ...th, textAlign: r ? 'right' : 'left' }}>{h}</th>
                   ))}
@@ -757,20 +603,12 @@ export default function OrderingGap() {
                 {filteredOG.length === 0
                   ? <tr><td colSpan={20} style={{ ...td, textAlign: 'center', color: 'var(--text2)', padding: 32 }}>No rows match current filters</td></tr>
                   : filteredOG.map((r, i) => {
-                      const gapCol        = r.gap > 0 ? 'var(--red)' : 'var(--text2)';
-                      const netGapCol     = r.effectiveGap > 0 ? '#b45309' : r.inTransitQty > 0 ? '#0891b2' : 'var(--text2)';
-                      const coverCol      = r.monthsCover >= 5 ? '#7c3aed' : r.monthsCover >= 3 ? '#d97706' : r.monthsCover > 0 ? 'var(--green)' : 'var(--text2)';
-                      const isDumpRow     = r.status === 'dump';
-                      const isTransitRow  = r.status === 'in-transit';
-                      const apparel       = isApparel(r.category);
+                      const gapCol    = r.gap > 0 ? 'var(--red)' : 'var(--text2)';
+                      const coverCol  = r.monthsCover >= 5 ? '#7c3aed' : r.monthsCover >= 3 ? '#d97706' : r.monthsCover > 0 ? 'var(--green)' : 'var(--text2)';
+                      const isDumpRow = r.status === 'dump';
+                      const apparel   = isApparel(r.category);
                       return (
-                        <tr key={i} style={{
-                          background: isDumpRow
-                            ? 'rgba(124,58,237,0.06)'
-                            : isTransitRow
-                            ? 'rgba(8,145,178,0.06)'
-                            : i % 2 === 0 ? 'var(--bg1)' : 'var(--bg2)'
-                        }}>
+                        <tr key={i} style={{ background: isDumpRow ? 'rgba(124,58,237,0.06)' : i % 2 === 0 ? 'var(--bg1)' : 'var(--bg2)' }}>
                           {showCatCol    && <td style={td}>{r.category}</td>}
                           <td style={td}>{r.subcategory}</td>
                           <td style={td}>{r.afsSize}</td>
@@ -799,16 +637,6 @@ export default function OrderingGap() {
                           <td style={{ ...tdR, color: gapCol, fontWeight: r.gap > 0 ? 700 : 400 }}>
                             {r.gap > 0 ? `+${r.gap}` : r.gap === 0 ? '—' : r.gap}
                           </td>
-                          {showTransit && (
-                            <td style={{ ...tdR, color: r.inTransitQty > 0 ? '#0891b2' : 'var(--text2)', fontWeight: r.inTransitQty > 0 ? 700 : 400 }}>
-                              {r.inTransitQty > 0 ? `🚚 ${r.inTransitQty}` : '—'}
-                            </td>
-                          )}
-                          {showTransit && (
-                            <td style={{ ...tdR, color: netGapCol, fontWeight: r.effectiveGap > 0 ? 700 : 400 }}>
-                              {r.effectiveGap > 0 ? `+${r.effectiveGap}` : r.gap > 0 && r.effectiveGap === 0 ? '✓ 0' : '—'}
-                            </td>
-                          )}
                           {ogCSFile && (
                             <td style={{ ...tdR, color: r.portalCount > 0 ? 'var(--green)' : 'var(--text2)' }}>
                               {r.portalCount > 0 ? r.portalCount : '—'}
@@ -834,16 +662,6 @@ export default function OrderingGap() {
                     <td style={{ ...tdR, fontWeight: 700, color: 'var(--red)' }}>
                       {(() => { const g = filteredOG.filter(r => r.gap > 0).reduce((s, r) => s + r.gap, 0); return g > 0 ? `+${g}` : '—'; })()}
                     </td>
-                    {showTransit && (
-                      <td style={{ ...tdR, fontWeight: 700, color: '#0891b2' }}>
-                        {(() => { const t = filteredOG.reduce((s, r) => s + r.inTransitQty, 0); return t > 0 ? t : '—'; })()}
-                      </td>
-                    )}
-                    {showTransit && (
-                      <td style={{ ...tdR, fontWeight: 700, color: '#b45309' }}>
-                        {(() => { const g = filteredOG.filter(r => r.effectiveGap > 0).reduce((s, r) => s + r.effectiveGap, 0); return g > 0 ? `+${g}` : '—'; })()}
-                      </td>
-                    )}
                     {ogCSFile && <td style={{ ...tdR, fontWeight: 700 }}>{filteredOG.reduce((s, r) => s + r.portalCount, 0)}</td>}
                     <td style={td}></td>
                   </tr>
@@ -855,14 +673,12 @@ export default function OrderingGap() {
           <div style={{ fontSize: 11, color: 'var(--text2)', marginTop: 10 }}>
             🔴 Critical = gap &gt; 0{ogCSFile ? ' (on portal)' : ''} ·
             🟡 Low = gap &gt; 0 (not on portal) ·
-            🚚 In Transit = gap fully covered by incoming stock ·
             💀 Dump = 5M+ cover &amp; last-3M slow ·
             🔵 Overstock = 5M+ cover but moving ·
             🟢 OK = healthy stock ·
             Mo.Cover = months of inventory at current avg ·
-            <strong> Apparel gap</strong> = (Avg × 4) − Stock;
-            <strong> Non-apparel gap</strong> = (Avg × 1.5) − Stock;
-            <strong> Net Gap</strong> = Gap − In Transit (what you actually still need to order)
+            <strong> Apparel gap</strong> = Sold − Stock;
+            <strong> Non-apparel gap</strong> = (Avg × 1.5) − Stock
           </div>
         </div>
       )}
