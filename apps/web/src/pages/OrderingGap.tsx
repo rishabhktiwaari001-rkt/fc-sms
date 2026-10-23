@@ -11,7 +11,7 @@ interface OGRow {
   last3Qty: number;
   monthlyAvg: number;
   currentStock: number;
-  minRequired: number;   // for apparel = soldQty; for non-apparel = monthlyAvg × 1.5
+  minRequired: number;   // for apparel = monthlyAvg × 4; for non-apparel = monthlyAvg × 1.5
   monthsCover: number;
   portalCount: number;
   gap: number;           // positive = need to order
@@ -304,7 +304,7 @@ export default function OrderingGap() {
 
         // Gap logic
         const minRequired = apparel
-          ? sold                         // apparel: need to replenish what sold
+          ? monthlyAvg * 4                  // apparel: maintain 4× monthly avg (≈ 4 months cover)
           : monthlyAvg * 1.5;            // non-apparel: maintain 1.5× monthly avg
         const gap         = Math.round(minRequired - stock);
         const monthsCover = monthlyAvg > 0 ? stock / monthlyAvg : (stock > 0 ? 999 : 0);
@@ -348,7 +348,7 @@ export default function OrderingGap() {
         const last3   = sales.last3;
         const avg     = sold / ASR_TOTAL_MONTHS;
         const apparel = isApparel(meta.cat);
-        const minReq  = apparel ? sold : avg * 1.5;
+        const minReq  = apparel ? avg * 4 : avg * 1.5;
         const gap     = Math.round(minReq);    // stock = 0
         const portal  = csMap.get(k3) || 0;
 
@@ -502,7 +502,7 @@ export default function OrderingGap() {
         {/* Logic legend */}
         <div style={{ marginTop: 12, padding: '10px 14px', background: 'var(--bg2)', borderRadius: 8, fontSize: 12, color: 'var(--text2)' }}>
           <strong style={{ color: 'var(--text1)' }}>Gap logic:</strong>
-          {' '}<span style={{ color: '#2563eb' }}>Clothes &amp; Shoes (Apparel)</span> — gap = Sold Qty − Current Stock (need to replenish what sold) ·
+          {' '}<span style={{ color: '#2563eb' }}>Clothes &amp; Shoes (Apparel)</span> — gap = (Monthly Avg × 4) − Current Stock (4 months cover target) ·
           {' '}<span style={{ color: '#059669' }}>Non-Apparel</span> — min required = Monthly Avg × 1.5 (maintain 6 weeks buffer); gap = Min Required − Current Stock
         </div>
       </div>
@@ -677,7 +677,7 @@ export default function OrderingGap() {
             🔵 Overstock = 5M+ cover but moving ·
             🟢 OK = healthy stock ·
             Mo.Cover = months of inventory at current avg ·
-            <strong> Apparel gap</strong> = Sold − Stock;
+            <strong> Apparel gap</strong> = (Avg × 4) − Stock;
             <strong> Non-apparel gap</strong> = (Avg × 1.5) − Stock
           </div>
         </div>
