@@ -2,7 +2,10 @@ import { parse } from 'csv-parse/sync';
 import { InwardRow } from '@fc-sms/types';
 
 export function parseInwardCsv(buffer: Buffer): InwardRow[] {
-  const rows = parse(buffer, {
+  // FC portal uses backslash-escaped quotes (30x30\" ) instead of standard CSV double-quotes ("").
+  // Preprocess: replace \" with "" so csv-parse handles it correctly.
+  const normalised = Buffer.from(buffer.toString('utf8').replace(/\\"/g, '""'));
+  const rows = parse(normalised, {
     columns: true,
     skip_empty_lines: true,
     trim: true,
