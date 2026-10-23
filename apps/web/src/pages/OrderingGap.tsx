@@ -110,24 +110,35 @@ function normAge(s: string): string {
     .replace(/\s+/g, '');
 }
 
-/** Extract normalised {size, gender} from IT product name/description */
+/** Normalise gender string so SS ("Boys"/"Girls") and IT desc ("Male"/"Female") both map to same value */
+function normGender(g: string): string {
+  const s = g.trim().toLowerCase();
+  if (/^(boy|boys|male)$/.test(s))   return 'boys';
+  if (/^(girl|girls|female)$/.test(s)) return 'girls';
+  if (/^unisex/.test(s))             return 'unisex';
+  return s; // keep as-is for anything else
+}
+
+/** Extract normalised {size, gender} from IT product name/description
+ *  Handles: "0-3M", "age 2-3Y", "NB", "Male"/"Female"/"Boys"/"Girls" */
 function extractDimFromDesc(name: string, desc: string): { size: string; gender: string } {
   const text = (name + ' ' + desc).toLowerCase();
-  // Gender
+  // Gender — IT desc uses Male/Female as well as Boys/Girls
   let gender = '';
-  if (/\bboys?\b/.test(text))       gender = 'boys';
-  else if (/\bgirls?\b/.test(text)) gender = 'girls';
-  else if (/\bunisex\b/.test(text)) gender = 'unisex';
-  else if (/\bmen\b/.test(text))    gender = 'men';
-  else if (/\bwomen\b/.test(text))  gender = 'women';
-  // Age group / size  e.g. 0-3m, 3-6 months, 2-3y, 2-3 years
+  if      (/\b(boys?|male)\b/.test(text))   gender = 'boys';
+  else if (/\b(girls?|female)\b/.test(text)) gender = 'girls';
+  else if (/\bunisex\b/.test(text))          gender = 'unisex';
+  // Age group / size  e.g. 0-3m / 3-6 months / age 2-3Y / NB / S(1-3m)
   let size = '';
-  const mM = text.match(/(\d+)\s*-\s*(\d+)\s*m(?:onths?)?(?!\w)/);
-  if (mM) { size = `${mM[1]}-${mM[2]}m`; }
-  else {
-    const mY = text.match(/(\d+)\s*-\s*(\d+)\s*(?:y(?:rs?|ears?))(?!\w)/);
+  // months pattern: 0-3m, 0-3M, 3-6 months, S(1-3m), age 0-3m
+  const mM = text.match(/(\d+)\s*-\s*(\d+)\s*m(?:onths?)?(?![a-z])/);
+  if (mM) {
+    size = `${mM[1]}-${mM[2]}m`;
+  } else {
+    // years pattern: 2-3y, 2-3 years, age 3-4Y
+    const mY = text.match(/(\d+)\s*-\s*(\d+)\s*(?:y(?:rs?|ears?)?)(?![a-z])/);
     if (mY) { size = `${mY[1]}-${mY[2]}y`; }
-    else if (/\bnewborn\b|\bnb\b/.test(text)) { size = 'nb'; }
+    else if (/\bnewborn\b|\b(nb|0m)\b/.test(text)) { size = 'nb'; }
   }
   return { size, gender };
 }
@@ -249,7 +260,7 @@ export default function OrderingGap() {
                 if (existing) existing.add(pid);
                 else key5ToProducts.set(k5, new Set([pid]));
                 // key4 = cat||sub||size||gender (no sleeve) for dimensional fallback
-                const k4 = [cat, sub, size, gender].map((s: string) => s.trim().toLowerCase()).join('||');
+                const k4 = [cat, sub, size].map((s: string) => s.trim().toLowerCase()).join('||') + '||' + normGender(gender);
                 pidToKey4.set(pid, k4);
               }
             }
@@ -447,12 +458,12 @@ export default function OrderingGap() {
         }
         // Step 2: dimensional fallback (cat||sub||size||gender via SS lookup)
         const parts = k5.split('||');
-        const k4 = parts.slice(0, 4).join('||');
+        const k4 = parts.slice(0, 3).join('||') + '||' + normGender(parts[3] ?? '');
         const k4qty = key4TransitMap.get(k4) || 0;
         if (k4qty > 0) return k4qty;
         // Step 3: desc-based fallback (normAge(size)||gender from IT Product Desc)
         const [,, rawSize, rawGender] = parts;  // k5 = cat||sub||size||gender||sleeve
-        const dk = normAge(rawSize) + '||' + rawGender;
+        const dk = normAge(rawSize) + '||' + normGender(rawGender ?? '');
         return descTransitMap.get(dk) || 0;
       }
 
