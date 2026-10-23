@@ -201,7 +201,7 @@ export default function OrderingGap() {
               if (!sub || !size) continue;
 
               // Capture productId for transit matching (Product ID alone is size-specific in this system)
-              const productId = (r['ProductID'] || r['Product ID'] || r['ArticleCode'] || r['Article Code'] || r['ItemCode'] || r['SKU'] || '').trim();
+              const productId = String(r['ProductID'] || r['Product ID'] || r['ArticleCode'] || r['Article Code'] || r['ItemCode'] || r['SKU'] || '').trim();
 
               const k5 = makeKey5(cat, sub, size, gender, sleeve);
               ssMap.set(k5, (ssMap.get(k5) || 0) + stock);
