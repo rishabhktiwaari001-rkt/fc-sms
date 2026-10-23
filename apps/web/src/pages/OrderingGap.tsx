@@ -110,6 +110,12 @@ export default function OrderingGap() {
   const [ogSubcatFilter, setOgSubcatFilter] = useState('All');
   const [ogGenderFilter, setOgGenderFilter] = useState('All');
   const [ogSleeveFilter, setOgSleeveFilter] = useState('All');
+  const tableRef = React.useRef<HTMLDivElement>(null);
+
+  const handleCardClick = (filterVal: string) => {
+    setOgStatusFilter(filterVal as any);
+    setTimeout(() => tableRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60);
+  };
 
   /* ── Styles ─── */
   const card = { background: 'var(--bg1)', border: '1px solid var(--border)', borderRadius: 10, padding: 16, marginBottom: 16 };
@@ -511,25 +517,44 @@ export default function OrderingGap() {
       {summary && (
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
           {[
-            { label: '🔴 Critical (order now)', val: summary.critical,  col: '#dc2626' },
-            { label: '🟡 Low (not on portal)', val: summary.low,       col: '#d97706' },
-            { label: '💀 Dump Stock SKUs',     val: summary.dump,      col: '#7c3aed' },
-            { label: '💀 Dump Stock Units',    val: summary.dumpUnits, col: '#7c3aed' },
-            { label: '🔵 Overstock',           val: summary.overstock, col: '#2563eb' },
-            { label: '🟢 OK / Sufficient',     val: summary.ok,        col: '#059669' },
-            { label: '📦 Total Units Gap',     val: summary.totalGap,  col: 'var(--red)' },
-          ].map(c => (
-            <div key={c.label} style={{ ...card, flex: '1 1 140px', marginBottom: 0, textAlign: 'center' }}>
-              <div style={{ fontSize: 22, fontWeight: 800, color: c.col }}>{c.val}</div>
-              <div style={{ fontSize: 11, color: 'var(--text2)', marginTop: 4 }}>{c.label}</div>
-            </div>
-          ))}
+            { label: '🔴 Critical (order now)', val: summary.critical,  col: '#dc2626', filter: 'critical'  },
+            { label: '🟡 Low (not on portal)', val: summary.low,       col: '#d97706', filter: 'low'       },
+            { label: '💀 Dump Stock SKUs',     val: summary.dump,      col: '#7c3aed', filter: 'dump'      },
+            { label: '💀 Dump Stock Units',    val: summary.dumpUnits, col: '#7c3aed', filter: 'dump'      },
+            { label: '🔵 Overstock',           val: summary.overstock, col: '#2563eb', filter: 'overstock' },
+            { label: '🟢 OK / Sufficient',     val: summary.ok,        col: '#059669', filter: 'ok'        },
+            { label: '📦 Total Units Gap',     val: summary.totalGap,  col: 'var(--red)', filter: 'all'    },
+          ].map(c => {
+            const isActive = ogStatusFilter === c.filter && c.filter !== 'all';
+            return (
+              <div
+                key={c.label}
+                onClick={() => handleCardClick(c.filter)}
+                style={{
+                  ...card,
+                  flex: '1 1 140px', marginBottom: 0, textAlign: 'center',
+                  cursor: 'pointer',
+                  outline: isActive ? `2px solid ${c.col}` : '2px solid transparent',
+                  outlineOffset: 2,
+                  transform: isActive ? 'translateY(-2px)' : 'none',
+                  transition: 'transform 0.15s, outline 0.15s',
+                  userSelect: 'none' as const,
+                }}
+              >
+                <div style={{ fontSize: 22, fontWeight: 800, color: c.col }}>{c.val}</div>
+                <div style={{ fontSize: 11, color: 'var(--text2)', marginTop: 4 }}>{c.label}</div>
+                <div style={{ fontSize: 10, color: c.col, marginTop: 3, opacity: 0.7 }}>
+                  {isActive ? '▲ active filter' : 'click to filter ↓'}
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
 
       {/* ── Filters + Table ── */}
       {ogData && (
-        <div style={card}>
+        <div ref={tableRef} style={card}>
           {/* Filter bar */}
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 14, alignItems: 'center' }}>
             <div style={{ fontWeight: 700, fontSize: 14, marginRight: 4 }}>Ordering Gap by SKU</div>
