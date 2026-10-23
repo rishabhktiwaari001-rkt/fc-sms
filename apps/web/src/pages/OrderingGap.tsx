@@ -100,6 +100,39 @@ function makeKey3(cat: string, sub: string, size: string) {
 /** Normalise product ID for transit matching */
 function normPid(id: string): string { return id.trim().toLowerCase(); }
 
+/** Normalise age-group/size string for description-based matching
+ *  "0-3M" → "0-3m"  |  "3-6 Months" → "3-6m"  |  "2-3 Years" → "2-3y" */
+function normAge(s: string): string {
+  return s.trim().toLowerCase()
+    .replace(/\bmonths?\b/, 'm')
+    .replace(/\b(years?|yrs?)\b/, 'y')
+    .replace(/\s*-\s*/g, '-')
+    .replace(/\s+/g, '');
+}
+
+/** Extract normalised {size, gender} from IT product name/description */
+function extractDimFromDesc(name: string, desc: string): { size: string; gender: string } {
+  const text = (name + ' ' + desc).toLowerCase();
+  // Gender
+  let gender = '';
+  if (/\bboys?\b/.test(text))       gender = 'boys';
+  else if (/\bgirls?\b/.test(text)) gender = 'girls';
+  else if (/\bunisex\b/.test(text)) gender = 'unisex';
+  else if (/\bmen\b/.test(text))    gender = 'men';
+  else if (/\bwomen\b/.test(text))  gender = 'women';
+  // Age group / size  e.g. 0-3m, 3-6 months, 2-3y, 2-3 years
+  let size = '';
+  const mM = text.match(/(\d+)\s*-\s*(\d+)\s*m(?:onths?)?(?!\w)/);
+  if (mM) { size = `${mM[1]}-${mM[2]}m`; }
+  else {
+    const mY = text.match(/(\d+)\s*-\s*(\d+)\s*(?:y(?:rs?|ears?))(?!\w)/);
+    if (mY) { size = `${mY[1]}-${mY[2]}y`; }
+    else if (/\bnewborn\b|\bnb\b/.test(text)) { size = 'nb'; }
+  }
+  return { size, gender };
+}
+
+
 /* ── Component ──────────────────────────────────────────── */
 export default function OrderingGap() {
   const [ogCSFile, setOgCSFile]   = useState<File | null>(null);
@@ -301,6 +334,8 @@ export default function OrderingGap() {
       const transitMap = new Map<string, number>();
       // key4TransitMap: cat||sub||size||gender → transitQty (dimensional fallback)
       const key4TransitMap = new Map<string, number>();
+      // descTransitMap: normAge(size)||normGender → transitQty (desc-based fallback for unknown PIDs)
+      const descTransitMap = new Map<string, number>();
       const itLoaded = !!ogITFile;
 
       if (ogITFile) {
@@ -346,6 +381,15 @@ export default function OrderingGap() {
                 const k4 = pidToKey4.get(key);
                 if (k4) {
                   key4TransitMap.set(k4, (key4TransitMap.get(k4) || 0) + qty);
+                } else {
+                  // Desc-based fallback: PID not in SS — extract size+gender from Product Name/Desc
+                  const itName = String(r['Product Name'] || r['ProductName'] || r['Name'] || '');
+                  const itDesc = String(r['Product Desc'] || r['ProductDesc'] || r['Description'] || r['Desc'] || '');
+                  const { size: dSize, gender: dGender } = extractDimFromDesc(itName, itDesc);
+                  if (dSize) {
+                    const dk = normAge(dSize) + '||' + dGender;
+                    descTransitMap.set(dk, (descTransitMap.get(dk) || 0) + qty);
+                  }
                 }
               }
               res();
@@ -401,10 +445,15 @@ export default function OrderingGap() {
           for (const pid of pids) total += transitMap.get(pid) || 0;
           if (total > 0) return total;
         }
-        // Step 2: dimensional fallback (cat||sub||size||gender, any PID)
+        // Step 2: dimensional fallback (cat||sub||size||gender via SS lookup)
         const parts = k5.split('||');
         const k4 = parts.slice(0, 4).join('||');
-        return key4TransitMap.get(k4) || 0;
+        const k4qty = key4TransitMap.get(k4) || 0;
+        if (k4qty > 0) return k4qty;
+        // Step 3: desc-based fallback (normAge(size)||gender from IT Product Desc)
+        const [,, rawSize, rawGender] = parts;  // k5 = cat||sub||size||gender||sleeve
+        const dk = normAge(rawSize) + '||' + rawGender;
+        return descTransitMap.get(dk) || 0;
       }
 
       // From SS entries (has current stock)
