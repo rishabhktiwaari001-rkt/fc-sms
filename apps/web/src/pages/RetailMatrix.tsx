@@ -158,6 +158,7 @@ export default function RetailMatrix() {
   const [losFilterSub, setLosFilterSub] = useState('');
   const [losFilterDateFrom, setLosFilterDateFrom] = useState('');
   const [losFilterDateTo, setLosFilterDateTo] = useState('');
+  const [losFilterAge, setLosFilterAge] = useState('');
   const [dsrManual, setDsrManual] = useState<Record<string,DsrManualEntry>>(() => { try { return JSON.parse(localStorage.getItem('rm_dsr')||'{}'); } catch { return {}; } });
   const [dsrEditing, setDsrEditing] = useState<string|null>(null);
   const [dsrEdit, setDsrEdit] = useState<Partial<DsrManualEntry>>({});
@@ -1228,8 +1229,13 @@ export default function RetailMatrix() {
                   ).filter(Boolean)
                 )).sort().map(s=><option key={s} value={s}>{s}</option>)}
               </select>
-              {(losFilterCat||losFilterSub||losFilterDateFrom||losFilterDateTo)&&(
-                <button onClick={()=>{setLosFilterCat('');setLosFilterSub('');setLosFilterDateFrom('');setLosFilterDateTo('');}} className="btn btn-ghost btn-sm" style={{fontSize:11}}>✕ Clear</button>
+              <select value={losFilterAge} onChange={e=>setLosFilterAge(e.target.value)}
+                style={{padding:'5px 8px',fontSize:12,borderRadius:6,border:'1px solid var(--border)',background:'var(--bg1)',color:'var(--text1)'}}>
+                <option value="">All Age Groups</option>
+                {Array.from(new Set(losRows.map(r=>r.ageGroup).filter(Boolean))).sort().map(a=><option key={a} value={a}>{a}</option>)}
+              </select>
+              {(losFilterCat||losFilterSub||losFilterDateFrom||losFilterDateTo||losFilterAge)&&(
+                <button onClick={()=>{setLosFilterCat('');setLosFilterSub('');setLosFilterDateFrom('');setLosFilterDateTo('');setLosFilterAge('');}} className="btn btn-ghost btn-sm" style={{fontSize:11}}>✕ Clear</button>
               )}
             </div>
           </div>
@@ -1241,6 +1247,7 @@ export default function RetailMatrix() {
               if(losFilterDateTo) filtered=filtered.filter(r=>r.date<=losFilterDateTo);
               if(losFilterCat) filtered=filtered.filter(r=>r.category===losFilterCat);
               if(losFilterSub) filtered=filtered.filter(r=>r.subCategory===losFilterSub);
+              if(losFilterAge) filtered=filtered.filter(r=>r.ageGroup===losFilterAge);
               return filtered.length===0?(
                 <div style={{padding:32,textAlign:'center',color:'var(--text2)',fontSize:13}}>
                   {losRows.length===0?'No entries yet. Click "+ Add Entry" to record a customer loss of sale.':`No entries match the selected filters. (${losRows.length} total)`}
