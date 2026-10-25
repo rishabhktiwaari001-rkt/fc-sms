@@ -157,6 +157,8 @@ export default function RetailMatrix() {
   const [dsrManual, setDsrManual] = useState<Record<string,DsrManualEntry>>(() => { try { return JSON.parse(localStorage.getItem('rm_dsr')||'{}'); } catch { return {}; } });
   const [dsrEditing, setDsrEditing] = useState<string|null>(null);
   const [dsrEdit, setDsrEdit] = useState<Partial<DsrManualEntry>>({});
+  const [dsrMonthlyTarget, setDsrMonthlyTarget] = useState<Record<string,number>>(() => { try { return JSON.parse(localStorage.getItem('rm_dsr_mt')||'{}'); } catch { return {}; } });
+  const [dsrMtInput, setDsrMtInput] = useState<string>('');
   const [catTargets, setCatTargets] = useState<Record<string,{saleLy:number;qtyLy:number;target:number}>>(() => { try { return JSON.parse(localStorage.getItem('rm_cat')||'{}'); } catch { return {}; } });
   const [catEditing, setCatEditing] = useState<string|null>(null);
   const [catEditVals, setCatEditVals] = useState<Record<string,{saleLy:number;qtyLy:number;target:number}>>({});
@@ -168,6 +170,7 @@ export default function RetailMatrix() {
 
   const saveLosRows = (r: LosEntry[]) => { setLosRows(r); try { localStorage.setItem('rm_los',JSON.stringify(r)); } catch {} };
   const saveDsrManual = (d: Record<string,DsrManualEntry>) => { setDsrManual(d); try { localStorage.setItem('rm_dsr',JSON.stringify(d)); } catch {} };
+  const saveDsrMonthlyTarget = (d: Record<string,number>) => { setDsrMonthlyTarget(d); try { localStorage.setItem('rm_dsr_mt',JSON.stringify(d)); } catch {} };
   const saveCatTargets = (d: typeof catTargets) => { setCatTargets(d); try { localStorage.setItem('rm_cat',JSON.stringify(d)); } catch {} };
   const saveStaffTargets = (d: typeof staffTargets) => { setStaffTargets(d); try { localStorage.setItem('rm_staff',JSON.stringify(d)); } catch {} };
   const saveCmpData = (d: Record<string,number>) => { setCmpData(d); try { localStorage.setItem('rm_cmp',JSON.stringify(d)); } catch {} };
@@ -792,6 +795,11 @@ export default function RetailMatrix() {
 
       {/* ── Tab 6: DSR ── */}
       {activeTab === 6 && (() => {
+        const monthKey = selMonth === 'All' ? (() => { const n=new Date(); return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}`; })() : selMonth;
+        const [mY, mMo] = monthKey.split('-').map(Number);
+        const totalDaysInMonth = new Date(mY, mMo, 0).getDate();
+        const monthlyTarget = dsrMonthlyTarget[monthKey] || 0;
+
         const dsrDays: {dateKey:string;date:Date;day:string;sale:number;bills:number;qty:number}[] = [];
         if (rows.length > 0) {
           const DNAMES=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
@@ -802,91 +810,160 @@ export default function RetailMatrix() {
             if(!dm.has(k)) dm.set(k,{date:r.BillDate,sale:0,bills:new Set(),qty:0});
             const d=dm.get(k)!; d.sale+=r.GSV; d.bills.add(r.InvoiceNumber); d.qty+=r.Quantity;
           }
-          for (const [k,v] of Array.from(dm.entries()).sort())
-            dsrDays.push({dateKey:k,date:v.date,day:DNAMES[v.date.getDay()],sale:v.sale,bills:v.bills.size,qty:v.qty});
+          // Fill all days of the month, not just days with sales
+          for (let d=1; d<=totalDaysInMonth; d++) {
+            const date = new Date(mY, mMo-1, d);
+            const k = date.toISOString().slice(0,10);
+            const v = dm.get(k);
+            dsrDays.push({dateKey:k,date,day:DNAMES[date.getDay()],sale:v?.sale||0,bills:v?.bills.size||0,qty:v?.qty||0});
+          }
         }
-        const mtdSale=dsrDays.reduce((s,d)=>s+d.sale,0);
-        const mtdBills=dsrDays.reduce((s,d)=>s+d.bills,0);
-        const mtdQty=dsrDays.reduce((s,d)=>s+d.qty,0);
-        const mtdTarget=dsrDays.reduce((s,d)=>s+(dsrManual[d.dateKey]?.target||0),0);
+
+        // Rolling target logic: each day's target = (remaining target) / (remaining days)
+        const today = new Date(); today.setHours(0,0,0,0);
+        let cumulativeSale = 0;
+        const dayTargets: Record<string, number> = {};
+        if (monthlyTarget > 0 && dsrDays.length > 0) {
+          for (let i = 0; i < dsrDays.length; i++) {
+            const remaining = monthlyTarget - cumulativeSale;
+            const remainingDays = totalDaysInMonth - i;
+            dayTargets[dsrDays[i].dateKey] = Math.round(remaining / remainingDays);
+            cumulativeSale += dsrDays[i].sale;
+          }
+        }
+
+        const mtdSale = dsrDays.reduce((s,d)=>s+d.sale,0);
+        const mtdBills = dsrDays.reduce((s,d)=>s+d.bills,0);
+        const mtdQty = dsrDays.reduce((s,d)=>s+d.qty,0);
+        const mtdTarget = Object.values(dayTargets).reduce((s,v)=>s+v,0);
         const inp: React.CSSProperties={width:80,padding:'3px 6px',fontSize:12,borderRadius:4,border:'1px solid var(--border)',background:'var(--bg2)',color:'var(--text1)'};
+
         return (
           <div style={card}>
-            <div style={{fontWeight:700,fontSize:15,marginBottom:4}}>📊 Daily Sales Report — {!rows.length?'Upload ASR CSV first':selMonth==='All'?'Select a month above':activeLabel}</div>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:12,flexWrap:'wrap',gap:8}}>
+              <div style={{fontWeight:700,fontSize:15}}>📊 Daily Sales Report — {!rows.length?'Upload ASR CSV first':selMonth==='All'?'Select a month above':activeLabel}</div>
+              <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
+                {monthlyTarget > 0 ? (
+                  <div style={{display:'flex',alignItems:'center',gap:6,background:'rgba(29,78,216,0.08)',borderRadius:8,padding:'6px 12px',fontSize:13}}>
+                    <span style={{color:'var(--text2)'}}>Monthly Target:</span>
+                    <strong style={{color:'var(--brand)'}}>{monthlyTarget.toLocaleString('en-IN',{style:'currency',currency:'INR',maximumFractionDigits:0})}</strong>
+                    <button onClick={()=>{setDsrMtInput(String(monthlyTarget));}} className="btn btn-ghost btn-sm" style={{fontSize:11,padding:'2px 6px'}}>✎</button>
+                    <span style={{color:'var(--text2)',fontSize:11}}>|</span>
+                    <span style={{fontSize:12,color:mtdSale>=mtdTarget*0.5?'var(--green)':'var(--red)'}}>Achieved: {mtdSale.toLocaleString('en-IN',{style:'currency',currency:'INR',maximumFractionDigits:0})} ({monthlyTarget?(mtdSale/monthlyTarget*100).toFixed(0):0}%)</span>
+                  </div>
+                ) : (
+                  <div style={{display:'flex',alignItems:'center',gap:6}}>
+                    <span style={{fontSize:12,color:'var(--text2)',fontWeight:600}}>Set Monthly Target:</span>
+                    <input type="number" placeholder="e.g. 1500000" value={dsrMtInput}
+                      onChange={e=>setDsrMtInput(e.target.value)}
+                      style={{width:140,padding:'5px 8px',fontSize:12,borderRadius:6,border:'2px solid var(--brand)',background:'var(--bg2)',color:'var(--text1)'}}
+                      onKeyDown={e=>{if(e.key==='Enter'&&dsrMtInput){saveDsrMonthlyTarget({...dsrMonthlyTarget,[monthKey]:+dsrMtInput});setDsrMtInput('');}}}/>
+                    <button disabled={!dsrMtInput} onClick={()=>{saveDsrMonthlyTarget({...dsrMonthlyTarget,[monthKey]:+dsrMtInput});setDsrMtInput('');}} className="btn btn-brand btn-sm">Set</button>
+                  </div>
+                )}
+                {dsrMtInput && monthlyTarget > 0 && (
+                  <div style={{display:'flex',alignItems:'center',gap:6}}>
+                    <input type="number" value={dsrMtInput} onChange={e=>setDsrMtInput(e.target.value)}
+                      style={{width:120,padding:'5px 8px',fontSize:12,borderRadius:6,border:'2px solid var(--brand)',background:'var(--bg2)',color:'var(--text1)'}}/>
+                    <button onClick={()=>{saveDsrMonthlyTarget({...dsrMonthlyTarget,[monthKey]:+dsrMtInput});setDsrMtInput('');}} className="btn btn-brand btn-sm">Update</button>
+                    <button onClick={()=>setDsrMtInput('')} className="btn btn-ghost btn-sm">✕</button>
+                  </div>
+                )}
+              </div>
+            </div>
             {!rows.length ? (
               <div style={{padding:32,textAlign:'center',color:'var(--text2)',fontSize:13}}>Upload Article Sale Report CSV to auto-fill daily sales.</div>
             ) : selMonth==='All' ? (
               <div style={{padding:16,color:'var(--text2)',fontSize:13}}>Select a month from the month filter to view DSR.</div>
             ) : (
-              <div className="tbl-wrap">
-                <table>
-                  <thead><tr>{['Date','Day','Target','Sale','%Ach','Walking','Bills','Qty','Con%','AUPT','AVPT','LY Sale','GOLY','Scrap','CMP',''].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead>
-                  <tbody>
-                    {dsrDays.map(d=>{
-                      const m=dsrManual[d.dateKey]||{} as DsrManualEntry;
-                      const target=m.target||0, walking=m.walking||0, lySale=m.lySale||0;
-                      const pctAch=target?(d.sale/target)*100:null;
-                      const con=walking?(d.bills/walking)*100:null;
-                      const aupt=d.bills?d.qty/d.bills:0;
-                      const avpt=d.bills?d.sale/d.bills:0;
-                      const goly=lySale?((d.sale/lySale)-1)*100:null;
-                      const isEd=dsrEditing===d.dateKey;
-                      return (
-                        <tr key={d.dateKey} style={{background:isEd?'rgba(29,78,216,0.06)':undefined}}>
-                          <td style={{...td,fontWeight:600}}>{fmtDate(d.date)}</td>
-                          <td style={{...td,color:'var(--text2)'}}>{d.day}</td>
-                          {isEd?(<>
-                            <td style={td}><input type="number" style={inp} value={dsrEdit.target??m.target??''} onChange={e=>setDsrEdit(p=>({...p,target:+e.target.value}))}/></td>
-                            <td style={tdR}>{fmtRs(d.sale)}</td><td style={tdR}>—</td>
-                            <td style={td}><input type="number" style={inp} value={dsrEdit.walking??m.walking??''} onChange={e=>setDsrEdit(p=>({...p,walking:+e.target.value}))}/></td>
-                            <td style={tdR}>{d.bills}</td><td style={tdR}>{d.qty}</td>
-                            <td style={tdR}>—</td><td style={tdR}>—</td><td style={tdR}>—</td>
-                            <td style={td}><input type="number" style={inp} value={dsrEdit.lySale??m.lySale??''} onChange={e=>setDsrEdit(p=>({...p,lySale:+e.target.value}))}/></td>
-                            <td style={tdR}>—</td>
-                            <td style={td}><input type="number" style={inp} value={dsrEdit.scrap??m.scrap??''} onChange={e=>setDsrEdit(p=>({...p,scrap:+e.target.value}))}/></td>
-                            <td style={td}><input type="number" style={inp} value={dsrEdit.cmp??m.cmp??''} onChange={e=>setDsrEdit(p=>({...p,cmp:+e.target.value}))}/></td>
-                            <td style={td}>
-                              <button onClick={()=>{saveDsrManual({...dsrManual,[d.dateKey]:{...m,...dsrEdit}as DsrManualEntry});setDsrEditing(null);setDsrEdit({});}} className="btn btn-brand btn-sm" style={{fontSize:11,marginRight:4}}>✓</button>
-                              <button onClick={()=>{setDsrEditing(null);setDsrEdit({});}} className="btn btn-ghost btn-sm" style={{fontSize:11}}>✕</button>
-                            </td>
-                          </>):(<>
-                            <td style={tdR}>{target?target.toLocaleString('en-IN'):<span style={{color:'var(--text2)'}}>—</span>}</td>
-                            <td style={tdR}>{fmtRs(d.sale)}</td>
-                            <td style={{...tdR,color:pctAch==null?'var(--text2)':pctAch>=100?'var(--green)':pctAch>=80?'#d97706':'var(--red)'}}>{pctAch!=null?`${pctAch.toFixed(0)}%`:'—'}</td>
-                            <td style={tdR}>{walking||<span style={{color:'var(--text2)'}}>—</span>}</td>
-                            <td style={tdR}>{d.bills}</td><td style={tdR}>{d.qty}</td>
-                            <td style={tdR}>{con!=null?`${con.toFixed(0)}%`:'—'}</td>
-                            <td style={tdR}>{d.bills?aupt.toFixed(2):'—'}</td>
-                            <td style={tdR}>{d.bills?fmtRs(avpt):'—'}</td>
-                            <td style={tdR}>{lySale?fmtRs(lySale):<span style={{color:'var(--text2)'}}>—</span>}</td>
-                            <td style={{...tdR,color:goly==null?'var(--text2)':goly>=0?'var(--green)':'var(--red)'}}>{goly!=null?`${goly>=0?'+':''}${goly.toFixed(0)}%`:'—'}</td>
-                            <td style={tdR}>{m.scrap||<span style={{color:'var(--text2)'}}>—</span>}</td>
-                            <td style={tdR}>{m.cmp||<span style={{color:'var(--text2)'}}>—</span>}</td>
-                            <td style={td}><button onClick={()=>{setDsrEditing(d.dateKey);setDsrEdit({});}} className="btn btn-ghost btn-sm" style={{fontSize:11}}>✎</button></td>
-                          </>)}
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                  <tfoot>
-                    <tr style={{background:'var(--bg2)',fontWeight:700}}>
-                      <td style={td} colSpan={2}>MTD</td>
-                      <td style={tdR}>{mtdTarget?mtdTarget.toLocaleString('en-IN'):'—'}</td>
-                      <td style={tdR}>{fmtRs(mtdSale)}</td>
-                      <td style={{...tdR,color:mtdTarget?(mtdSale/mtdTarget*100>=100?'var(--green)':mtdSale/mtdTarget*100>=80?'#d97706':'var(--red)'):'var(--text2)'}}>{mtdTarget?`${(mtdSale/mtdTarget*100).toFixed(0)}%`:'—'}</td>
-                      <td style={tdR}>—</td>
-                      <td style={tdR}>{mtdBills}</td><td style={tdR}>{mtdQty}</td>
-                      <td style={tdR}>—</td>
-                      <td style={tdR}>{mtdBills?(mtdQty/mtdBills).toFixed(2):'—'}</td>
-                      <td style={tdR}>{mtdBills?fmtRs(mtdSale/mtdBills):'—'}</td>
-                      <td style={tdR}>—</td><td style={tdR}>—</td>
-                      <td style={tdR}>{dsrDays.reduce((s,d)=>s+(dsrManual[d.dateKey]?.scrap||0),0)||'—'}</td>
-                      <td style={tdR}>{dsrDays.reduce((s,d)=>s+(dsrManual[d.dateKey]?.cmp||0),0)||'—'}</td>
-                      <td style={td}></td>
-                    </tr>
-                  </tfoot>
-                </table>
-              </div>
+              <>
+                {monthlyTarget > 0 && (
+                  <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:10,marginBottom:12}}>
+                    {[
+                      {label:'Monthly Target',value:monthlyTarget.toLocaleString('en-IN',{style:'currency',currency:'INR',maximumFractionDigits:0}),color:'#1d4ed8'},
+                      {label:'MTD Sale',value:mtdSale.toLocaleString('en-IN',{style:'currency',currency:'INR',maximumFractionDigits:0}),color:mtdSale>=mtdTarget*0.9?'#059669':'#dc2626'},
+                      {label:'Backlog',value:(monthlyTarget-mtdSale).toLocaleString('en-IN',{style:'currency',currency:'INR',maximumFractionDigits:0}),color:(monthlyTarget-mtdSale)<=0?'#059669':'#dc2626'},
+                      {label:'Ach%',value:`${(mtdSale/monthlyTarget*100).toFixed(1)}%`,color:mtdSale/monthlyTarget>=1?'#059669':mtdSale/monthlyTarget>=0.8?'#d97706':'#dc2626'},
+                    ].map(({label,value,color})=>(
+                      <div key={label} style={{padding:'8px 12px',borderRadius:8,background:'var(--bg1)',border:'1px solid var(--border)'}}>
+                        <div style={{fontSize:10,color:'var(--text2)',fontWeight:600,marginBottom:2}}>{label}</div>
+                        <div style={{fontSize:15,fontWeight:700,color}}>{value}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div className="tbl-wrap">
+                  <table>
+                    <thead><tr>{['Date','Day','Target','Sale','%Ach','Walking','Bills','Qty','Con%','AUPT','AVPT','LY Sale','GOLY','Scrap','CMP',''].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead>
+                    <tbody>
+                      {dsrDays.map(d=>{
+                        const m=dsrManual[d.dateKey]||{} as DsrManualEntry;
+                        const dayTarget = dayTargets[d.dateKey] || 0;
+                        const walking=m.walking||0, lySale=m.lySale||0;
+                        const pctAch=dayTarget&&d.sale?(d.sale/dayTarget)*100:null;
+                        const con=walking?(d.bills/walking)*100:null;
+                        const aupt=d.bills?d.qty/d.bills:0;
+                        const avpt=d.bills?d.sale/d.bills:0;
+                        const goly=lySale?((d.sale/lySale)-1)*100:null;
+                        const isEd=dsrEditing===d.dateKey;
+                        const isFuture = d.date > today;
+                        return (
+                          <tr key={d.dateKey} style={{background:isEd?'rgba(29,78,216,0.06)':isFuture?'rgba(0,0,0,0.02)':undefined,opacity:isFuture?0.6:1}}>
+                            <td style={{...td,fontWeight:600}}>{fmtDate(d.date)}</td>
+                            <td style={{...td,color:'var(--text2)'}}>{d.day}</td>
+                            <td style={{...tdR,color:'var(--text2)',fontStyle:isFuture?'italic':undefined}}>{dayTarget?dayTarget.toLocaleString('en-IN'):<span style={{color:'var(--text2)'}}>—</span>}</td>
+                            {isEd?(<>
+                              <td style={tdR}>{d.sale>0?`₹${d.sale.toLocaleString('en-IN',{maximumFractionDigits:0})}`:'—'}</td><td style={tdR}>—</td>
+                              <td style={td}><input type="number" style={inp} value={dsrEdit.walking??m.walking??''} onChange={e=>setDsrEdit(p=>({...p,walking:+e.target.value}))}/></td>
+                              <td style={tdR}>{d.bills||'—'}</td><td style={tdR}>{d.qty||'—'}</td>
+                              <td style={tdR}>—</td><td style={tdR}>—</td><td style={tdR}>—</td>
+                              <td style={td}><input type="number" style={inp} value={dsrEdit.lySale??m.lySale??''} onChange={e=>setDsrEdit(p=>({...p,lySale:+e.target.value}))}/></td>
+                              <td style={tdR}>—</td>
+                              <td style={td}><input type="number" style={inp} value={dsrEdit.scrap??m.scrap??''} onChange={e=>setDsrEdit(p=>({...p,scrap:+e.target.value}))}/></td>
+                              <td style={td}><input type="number" style={inp} value={dsrEdit.cmp??m.cmp??''} onChange={e=>setDsrEdit(p=>({...p,cmp:+e.target.value}))}/></td>
+                              <td style={td}>
+                                <button onClick={()=>{saveDsrManual({...dsrManual,[d.dateKey]:{...m,...dsrEdit}as DsrManualEntry});setDsrEditing(null);setDsrEdit({});}} className="btn btn-brand btn-sm" style={{fontSize:11,marginRight:4}}>✓</button>
+                                <button onClick={()=>{setDsrEditing(null);setDsrEdit({});}} className="btn btn-ghost btn-sm" style={{fontSize:11}}>✕</button>
+                              </td>
+                            </>):(<>
+                              <td style={{...tdR,color:pctAch==null?'var(--text2)':d.sale===0?'var(--text2)':pctAch>=100?'var(--green)':pctAch>=80?'#d97706':'var(--red)',fontWeight:d.sale>0?600:400}}>{d.sale>0?`₹${d.sale.toLocaleString('en-IN',{maximumFractionDigits:0})}`:<span style={{color:'var(--text2)'}}>—</span>}</td>
+                              <td style={{...tdR,color:pctAch==null?'var(--text2)':pctAch>=100?'var(--green)':pctAch>=80?'#d97706':'var(--red)'}}>{pctAch!=null?`${pctAch.toFixed(0)}%`:'—'}</td>
+                              <td style={tdR}>{walking||<span style={{color:'var(--text2)'}}>—</span>}</td>
+                              <td style={tdR}>{d.bills||<span style={{color:'var(--text2)'}}>—</span>}</td>
+                              <td style={tdR}>{d.qty||<span style={{color:'var(--text2)'}}>—</span>}</td>
+                              <td style={tdR}>{con!=null?`${con.toFixed(0)}%`:'—'}</td>
+                              <td style={tdR}>{d.bills?aupt.toFixed(2):'—'}</td>
+                              <td style={tdR}>{d.bills?`₹${avpt.toLocaleString('en-IN',{maximumFractionDigits:0})}`:'—'}</td>
+                              <td style={tdR}>{lySale?`₹${lySale.toLocaleString('en-IN',{maximumFractionDigits:0})}`:<span style={{color:'var(--text2)'}}>—</span>}</td>
+                              <td style={{...tdR,color:goly==null?'var(--text2)':goly>=0?'var(--green)':'var(--red)'}}>{goly!=null?`${goly>=0?'+':''}${goly.toFixed(0)}%`:'—'}</td>
+                              <td style={tdR}>{m.scrap||<span style={{color:'var(--text2)'}}>—</span>}</td>
+                              <td style={tdR}>{m.cmp||<span style={{color:'var(--text2)'}}>—</span>}</td>
+                              <td style={td}>{!isFuture&&<button onClick={()=>{setDsrEditing(d.dateKey);setDsrEdit({});}} className="btn btn-ghost btn-sm" style={{fontSize:11}}>✎</button>}</td>
+                            </>)}
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                    <tfoot>
+                      <tr style={{background:'var(--bg2)',fontWeight:700}}>
+                        <td style={td} colSpan={2}>MTD</td>
+                        <td style={tdR}>{monthlyTarget?monthlyTarget.toLocaleString('en-IN'):'—'}</td>
+                        <td style={tdR}>{mtdSale>0?`₹${mtdSale.toLocaleString('en-IN',{maximumFractionDigits:0})}`:'—'}</td>
+                        <td style={{...tdR,color:monthlyTarget?(mtdSale/monthlyTarget*100>=100?'var(--green)':mtdSale/monthlyTarget*100>=80?'#d97706':'var(--red)'):'var(--text2)'}}>{monthlyTarget?`${(mtdSale/monthlyTarget*100).toFixed(0)}%`:'—'}</td>
+                        <td style={tdR}>—</td>
+                        <td style={tdR}>{mtdBills||'—'}</td><td style={tdR}>{mtdQty||'—'}</td>
+                        <td style={tdR}>—</td>
+                        <td style={tdR}>{mtdBills?(mtdQty/mtdBills).toFixed(2):'—'}</td>
+                        <td style={tdR}>{mtdBills?`₹${(mtdSale/mtdBills).toLocaleString('en-IN',{maximumFractionDigits:0})}`:'—'}</td>
+                        <td style={tdR}>—</td><td style={tdR}>—</td>
+                        <td style={tdR}>{dsrDays.reduce((s,d)=>s+(dsrManual[d.dateKey]?.scrap||0),0)||'—'}</td>
+                        <td style={tdR}>{dsrDays.reduce((s,d)=>s+(dsrManual[d.dateKey]?.cmp||0),0)||'—'}</td>
+                        <td style={td}></td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              </>
             )}
           </div>
         );
