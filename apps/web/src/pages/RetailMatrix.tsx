@@ -29,6 +29,15 @@ interface StaffStat {
   singlePct: number;
 }
 
+
+interface LosEntry {
+  id: string; store: string; date: string; customerName: string; contactNo: string;
+  category: string; subCategory: string; typeLevel: string; ageGroup: string;
+  gender: string; priceRange: string; requirement: string; remark: string;
+  status: string; staffName: string; followUpDate: string;
+}
+interface DsrManualEntry { target: number; walking: number; lySale: number; scrap: number; cmp: number; }
+
 const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
 function monthKey(d: Date): string {
@@ -140,7 +149,30 @@ export default function RetailMatrix() {
   const [selSub, setSelSub] = useState('All');
   const [transpose, setTranspose] = useState(false);
 
-  const TABS = ['🏆 Rankings', '🔍 Category', '💳 Memberships', '📅 Sales Reports', '⚠️ Less than 2 Qty Bills', '📆 Monthly Breakdown'];
+
+  // ── LOS Tracker tabs state ──
+  const [losRows, setLosRows] = useState<LosEntry[]>(() => { try { return JSON.parse(localStorage.getItem('rm_los')||'[]'); } catch { return []; } });
+  const [showLosForm, setShowLosForm] = useState(false);
+  const [losForm, setLosForm] = useState<Partial<LosEntry>>({});
+  const [dsrManual, setDsrManual] = useState<Record<string,DsrManualEntry>>(() => { try { return JSON.parse(localStorage.getItem('rm_dsr')||'{}'); } catch { return {}; } });
+  const [dsrEditing, setDsrEditing] = useState<string|null>(null);
+  const [dsrEdit, setDsrEdit] = useState<Partial<DsrManualEntry>>({});
+  const [catTargets, setCatTargets] = useState<Record<string,{saleLy:number;qtyLy:number;target:number}>>(() => { try { return JSON.parse(localStorage.getItem('rm_cat')||'{}'); } catch { return {}; } });
+  const [catEditing, setCatEditing] = useState<string|null>(null);
+  const [catEditVals, setCatEditVals] = useState<Record<string,{saleLy:number;qtyLy:number;target:number}>>({});
+  const [staffTargets, setStaffTargets] = useState<Record<string,{target:number;lySale:number}>>(() => { try { return JSON.parse(localStorage.getItem('rm_staff')||'{}'); } catch { return {}; } });
+  const [staffEditing, setStaffEditing] = useState<string|null>(null);
+  const [staffEditVals, setStaffEditVals] = useState<Record<string,{target:number;lySale:number}>>({});
+  const [cmpData, setCmpData] = useState<Record<string,number>>(() => { try { return JSON.parse(localStorage.getItem('rm_cmp')||'{}'); } catch { return {}; } });
+  const [cmpMonth, setCmpMonth] = useState<string>(() => { const n=new Date(); return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}`; });
+
+  const saveLosRows = (r: LosEntry[]) => { setLosRows(r); try { localStorage.setItem('rm_los',JSON.stringify(r)); } catch {} };
+  const saveDsrManual = (d: Record<string,DsrManualEntry>) => { setDsrManual(d); try { localStorage.setItem('rm_dsr',JSON.stringify(d)); } catch {} };
+  const saveCatTargets = (d: typeof catTargets) => { setCatTargets(d); try { localStorage.setItem('rm_cat',JSON.stringify(d)); } catch {} };
+  const saveStaffTargets = (d: typeof staffTargets) => { setStaffTargets(d); try { localStorage.setItem('rm_staff',JSON.stringify(d)); } catch {} };
+  const saveCmpData = (d: Record<string,number>) => { setCmpData(d); try { localStorage.setItem('rm_cmp',JSON.stringify(d)); } catch {} };
+
+  const TABS = ['🏆 Rankings', '🔍 Category', '💳 Memberships', '📅 Sales Reports', '⚠️ Less than 2 Qty Bills', '📆 Monthly Breakdown', '📊 DSR', '📋 Cat Wise', '👥 Staff Wise', '😞 Loss of Sale', '🎯 CMP Tracker'];
 
   const handleFile = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -303,7 +335,7 @@ export default function RetailMatrix() {
         </div>
       )}
 
-      {!rows.length && !loading && (
+      {!rows.length && !loading && activeTab < 6 && (
         <div style={{ ...card, padding: 48, textAlign: 'center', color: 'var(--text2)' }}>
           <div style={{ fontSize: 48, marginBottom: 12 }}>📈</div>
           <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 6 }}>Upload Article Sale Report CSV</div>
@@ -311,7 +343,14 @@ export default function RetailMatrix() {
         </div>
       )}
 
-      {rows.length > 0 && (
+      {/* Tab bar — always visible */}
+      <div style={{ display:'flex', gap:4, marginBottom:16, flexWrap:'wrap' }}>
+        {TABS.map((t,i)=>(
+          <button key={i} onClick={()=>setActiveTab(i)} className={`btn btn-sm ${activeTab===i?'btn-brand':'btn-ghost'}`} style={{fontSize:12}}>{t}</button>
+        ))}
+      </div>
+
+      {rows.length > 0 && activeTab < 6 && (
         <>
           {/* Summary stats */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 12 }}>
@@ -344,13 +383,6 @@ export default function RetailMatrix() {
               ))}
             </div>
           )}
-
-          {/* Tab buttons */}
-          <div style={{ display: 'flex', gap: 4, marginBottom: 16, flexWrap: 'wrap' }}>
-            {TABS.map((t, i) => (
-              <button key={i} onClick={() => setActiveTab(i)} className={`btn btn-sm ${activeTab === i ? 'btn-brand' : 'btn-ghost'}`} style={{ fontSize: 12 }}>{t}</button>
-            ))}
-          </div>
 
           {/* ── Tab 0: Rankings ── */}
           {activeTab === 0 && (
@@ -757,6 +789,386 @@ export default function RetailMatrix() {
 
         </>
       )}
+
+      {/* ── Tab 6: DSR ── */}
+      {activeTab === 6 && (() => {
+        const dsrDays: {dateKey:string;date:Date;day:string;sale:number;bills:number;qty:number}[] = [];
+        if (rows.length > 0) {
+          const DNAMES=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+          const tRows = selMonth==='All' ? salesRows : salesRows.filter(r=>r.MonthKey===selMonth);
+          const dm = new Map<string,{date:Date;sale:number;bills:Set<string>;qty:number}>();
+          for (const r of tRows) {
+            const k=r.BillDate.toISOString().slice(0,10);
+            if(!dm.has(k)) dm.set(k,{date:r.BillDate,sale:0,bills:new Set(),qty:0});
+            const d=dm.get(k)!; d.sale+=r.GSV; d.bills.add(r.InvoiceNumber); d.qty+=r.Quantity;
+          }
+          for (const [k,v] of Array.from(dm.entries()).sort())
+            dsrDays.push({dateKey:k,date:v.date,day:DNAMES[v.date.getDay()],sale:v.sale,bills:v.bills.size,qty:v.qty});
+        }
+        const mtdSale=dsrDays.reduce((s,d)=>s+d.sale,0);
+        const mtdBills=dsrDays.reduce((s,d)=>s+d.bills,0);
+        const mtdQty=dsrDays.reduce((s,d)=>s+d.qty,0);
+        const mtdTarget=dsrDays.reduce((s,d)=>s+(dsrManual[d.dateKey]?.target||0),0);
+        const inp: React.CSSProperties={width:80,padding:'3px 6px',fontSize:12,borderRadius:4,border:'1px solid var(--border)',background:'var(--bg2)',color:'var(--text1)'};
+        return (
+          <div style={card}>
+            <div style={{fontWeight:700,fontSize:15,marginBottom:4}}>📊 Daily Sales Report — {!rows.length?'Upload ASR CSV first':selMonth==='All'?'Select a month above':activeLabel}</div>
+            {!rows.length ? (
+              <div style={{padding:32,textAlign:'center',color:'var(--text2)',fontSize:13}}>Upload Article Sale Report CSV to auto-fill daily sales.</div>
+            ) : selMonth==='All' ? (
+              <div style={{padding:16,color:'var(--text2)',fontSize:13}}>Select a month from the month filter to view DSR.</div>
+            ) : (
+              <div className="tbl-wrap">
+                <table>
+                  <thead><tr>{['Date','Day','Target','Sale','%Ach','Walking','Bills','Qty','Con%','AUPT','AVPT','LY Sale','GOLY','Scrap','CMP',''].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead>
+                  <tbody>
+                    {dsrDays.map(d=>{
+                      const m=dsrManual[d.dateKey]||{} as DsrManualEntry;
+                      const target=m.target||0, walking=m.walking||0, lySale=m.lySale||0;
+                      const pctAch=target?(d.sale/target)*100:null;
+                      const con=walking?(d.bills/walking)*100:null;
+                      const aupt=d.bills?d.qty/d.bills:0;
+                      const avpt=d.bills?d.sale/d.bills:0;
+                      const goly=lySale?((d.sale/lySale)-1)*100:null;
+                      const isEd=dsrEditing===d.dateKey;
+                      return (
+                        <tr key={d.dateKey} style={{background:isEd?'rgba(29,78,216,0.06)':undefined}}>
+                          <td style={{...td,fontWeight:600}}>{fmtDate(d.date)}</td>
+                          <td style={{...td,color:'var(--text2)'}}>{d.day}</td>
+                          {isEd?(<>
+                            <td style={td}><input type="number" style={inp} value={dsrEdit.target??m.target??''} onChange={e=>setDsrEdit(p=>({...p,target:+e.target.value}))}/></td>
+                            <td style={tdR}>{fmtRs(d.sale)}</td><td style={tdR}>—</td>
+                            <td style={td}><input type="number" style={inp} value={dsrEdit.walking??m.walking??''} onChange={e=>setDsrEdit(p=>({...p,walking:+e.target.value}))}/></td>
+                            <td style={tdR}>{d.bills}</td><td style={tdR}>{d.qty}</td>
+                            <td style={tdR}>—</td><td style={tdR}>—</td><td style={tdR}>—</td>
+                            <td style={td}><input type="number" style={inp} value={dsrEdit.lySale??m.lySale??''} onChange={e=>setDsrEdit(p=>({...p,lySale:+e.target.value}))}/></td>
+                            <td style={tdR}>—</td>
+                            <td style={td}><input type="number" style={inp} value={dsrEdit.scrap??m.scrap??''} onChange={e=>setDsrEdit(p=>({...p,scrap:+e.target.value}))}/></td>
+                            <td style={td}><input type="number" style={inp} value={dsrEdit.cmp??m.cmp??''} onChange={e=>setDsrEdit(p=>({...p,cmp:+e.target.value}))}/></td>
+                            <td style={td}>
+                              <button onClick={()=>{saveDsrManual({...dsrManual,[d.dateKey]:{...m,...dsrEdit}as DsrManualEntry});setDsrEditing(null);setDsrEdit({});}} className="btn btn-brand btn-sm" style={{fontSize:11,marginRight:4}}>✓</button>
+                              <button onClick={()=>{setDsrEditing(null);setDsrEdit({});}} className="btn btn-ghost btn-sm" style={{fontSize:11}}>✕</button>
+                            </td>
+                          </>):(<>
+                            <td style={tdR}>{target?target.toLocaleString('en-IN'):<span style={{color:'var(--text2)'}}>—</span>}</td>
+                            <td style={tdR}>{fmtRs(d.sale)}</td>
+                            <td style={{...tdR,color:pctAch==null?'var(--text2)':pctAch>=100?'var(--green)':pctAch>=80?'#d97706':'var(--red)'}}>{pctAch!=null?`${pctAch.toFixed(0)}%`:'—'}</td>
+                            <td style={tdR}>{walking||<span style={{color:'var(--text2)'}}>—</span>}</td>
+                            <td style={tdR}>{d.bills}</td><td style={tdR}>{d.qty}</td>
+                            <td style={tdR}>{con!=null?`${con.toFixed(0)}%`:'—'}</td>
+                            <td style={tdR}>{d.bills?aupt.toFixed(2):'—'}</td>
+                            <td style={tdR}>{d.bills?fmtRs(avpt):'—'}</td>
+                            <td style={tdR}>{lySale?fmtRs(lySale):<span style={{color:'var(--text2)'}}>—</span>}</td>
+                            <td style={{...tdR,color:goly==null?'var(--text2)':goly>=0?'var(--green)':'var(--red)'}}>{goly!=null?`${goly>=0?'+':''}${goly.toFixed(0)}%`:'—'}</td>
+                            <td style={tdR}>{m.scrap||<span style={{color:'var(--text2)'}}>—</span>}</td>
+                            <td style={tdR}>{m.cmp||<span style={{color:'var(--text2)'}}>—</span>}</td>
+                            <td style={td}><button onClick={()=>{setDsrEditing(d.dateKey);setDsrEdit({});}} className="btn btn-ghost btn-sm" style={{fontSize:11}}>✎</button></td>
+                          </>)}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  <tfoot>
+                    <tr style={{background:'var(--bg2)',fontWeight:700}}>
+                      <td style={td} colSpan={2}>MTD</td>
+                      <td style={tdR}>{mtdTarget?mtdTarget.toLocaleString('en-IN'):'—'}</td>
+                      <td style={tdR}>{fmtRs(mtdSale)}</td>
+                      <td style={{...tdR,color:mtdTarget?(mtdSale/mtdTarget*100>=100?'var(--green)':mtdSale/mtdTarget*100>=80?'#d97706':'var(--red)'):'var(--text2)'}}>{mtdTarget?`${(mtdSale/mtdTarget*100).toFixed(0)}%`:'—'}</td>
+                      <td style={tdR}>—</td>
+                      <td style={tdR}>{mtdBills}</td><td style={tdR}>{mtdQty}</td>
+                      <td style={tdR}>—</td>
+                      <td style={tdR}>{mtdBills?(mtdQty/mtdBills).toFixed(2):'—'}</td>
+                      <td style={tdR}>{mtdBills?fmtRs(mtdSale/mtdBills):'—'}</td>
+                      <td style={tdR}>—</td><td style={tdR}>—</td>
+                      <td style={tdR}>{dsrDays.reduce((s,d)=>s+(dsrManual[d.dateKey]?.scrap||0),0)||'—'}</td>
+                      <td style={tdR}>{dsrDays.reduce((s,d)=>s+(dsrManual[d.dateKey]?.cmp||0),0)||'—'}</td>
+                      <td style={td}></td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* ── Tab 7: Category Wise ── */}
+      {activeTab === 7 && (() => {
+        const cats=Array.from(new Set(salesRows.map(r=>r.Category).filter(Boolean))).sort();
+        const fRows=selMonth==='All'?salesRows:salesRows.filter(r=>r.MonthKey===selMonth);
+        const totalTy=fRows.reduce((s,r)=>s+r.GSV,0);
+        const catData=cats.map(cat=>{
+          const rs=fRows.filter(r=>r.Category===cat);
+          const saleTy=rs.reduce((s,r)=>s+r.GSV,0), qtyTy=rs.reduce((s,r)=>s+r.Quantity,0);
+          const man=catTargets[cat]||{saleLy:0,qtyLy:0,target:0};
+          const saleGap=saleTy-man.saleLy, qtyGap=qtyTy-man.qtyLy;
+          const l2l=man.saleLy?((saleTy-man.saleLy)/man.saleLy*100):null;
+          const contrib=totalTy?(saleTy/totalTy*100):0;
+          const achPct=man.target?(saleTy/man.target*100):null;
+          return {cat,saleTy,qtyTy,man,saleGap,qtyGap,l2l,contrib,achPct};
+        });
+        const inp: React.CSSProperties={width:90,padding:'3px 6px',fontSize:12,borderRadius:4,border:'1px solid var(--border)',background:'var(--bg2)',color:'var(--text1)'};
+        return (
+          <div style={card}>
+            <div style={{fontWeight:700,fontSize:15,marginBottom:4}}>📋 Category Wise Sale — {!rows.length?'Upload ASR first':activeLabel}</div>
+            {!rows.length?(
+              <div style={{padding:32,textAlign:'center',color:'var(--text2)',fontSize:13}}>Upload Article Sale Report CSV to view category data.</div>
+            ):(
+              <div className="tbl-wrap">
+                <table>
+                  <thead><tr>{['Category','Sale TY','Qty TY','Sale LY ✎','Qty LY ✎','Sale Gap','Qty Gap','L2L%','Contrib%','Target ✎','Ach%',''].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead>
+                  <tbody>
+                    {catData.map(({cat,saleTy,qtyTy,man,saleGap,qtyGap,l2l,contrib,achPct})=>{
+                      const isEd=catEditing===cat;
+                      const ev=catEditVals[cat]||man;
+                      return (
+                        <tr key={cat} style={{background:isEd?'rgba(29,78,216,0.06)':undefined}}>
+                          <td style={{...td,fontWeight:600}}>{cat}</td>
+                          <td style={tdR}>{fmtRs(saleTy)}</td><td style={tdR}>{qtyTy}</td>
+                          {isEd?(<>
+                            <td style={td}><input type="number" style={inp} value={ev.saleLy||''} onChange={e=>setCatEditVals(p=>({...p,[cat]:{...ev,saleLy:+e.target.value}}))}/></td>
+                            <td style={td}><input type="number" style={inp} value={ev.qtyLy||''} onChange={e=>setCatEditVals(p=>({...p,[cat]:{...ev,qtyLy:+e.target.value}}))}/></td>
+                            <td style={tdR}>—</td><td style={tdR}>—</td><td style={tdR}>—</td>
+                            <td style={tdR}>{contrib.toFixed(1)}%</td>
+                            <td style={td}><input type="number" style={inp} value={ev.target||''} onChange={e=>setCatEditVals(p=>({...p,[cat]:{...ev,target:+e.target.value}}))}/></td>
+                            <td style={tdR}>—</td>
+                            <td style={td}>
+                              <button onClick={()=>{saveCatTargets({...catTargets,[cat]:catEditVals[cat]||man});setCatEditing(null);}} className="btn btn-brand btn-sm" style={{fontSize:11,marginRight:4}}>✓</button>
+                              <button onClick={()=>setCatEditing(null)} className="btn btn-ghost btn-sm" style={{fontSize:11}}>✕</button>
+                            </td>
+                          </>):(<>
+                            <td style={tdR}>{man.saleLy?fmtRs(man.saleLy):<span style={{color:'var(--text2)'}}>—</span>}</td>
+                            <td style={tdR}>{man.qtyLy||<span style={{color:'var(--text2)'}}>—</span>}</td>
+                            <td style={{...tdR,color:saleGap>=0?'var(--green)':'var(--red)'}}>{man.saleLy?fmtRs(saleGap):'—'}</td>
+                            <td style={{...tdR,color:qtyGap>=0?'var(--green)':'var(--red)'}}>{man.qtyLy?(qtyGap>=0?'+':'')+qtyGap:'—'}</td>
+                            <td style={{...tdR,color:l2l==null?'var(--text2)':l2l>=0?'var(--green)':'var(--red)'}}>{l2l!=null?`${l2l>=0?'+':''}${l2l.toFixed(1)}%`:'—'}</td>
+                            <td style={tdR}>{contrib.toFixed(1)}%</td>
+                            <td style={tdR}>{man.target?man.target.toLocaleString('en-IN'):<span style={{color:'var(--text2)'}}>—</span>}</td>
+                            <td style={{...tdR,color:achPct==null?'var(--text2)':achPct>=100?'var(--green)':achPct>=80?'#d97706':'var(--red)'}}>{achPct!=null?`${achPct.toFixed(0)}%`:'—'}</td>
+                            <td style={td}><button onClick={()=>{setCatEditing(cat);setCatEditVals(p=>({...p,[cat]:{...man}}));}} className="btn btn-ghost btn-sm" style={{fontSize:11}}>✎</button></td>
+                          </>)}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  <tfoot>
+                    <tr style={{background:'var(--bg2)',fontWeight:700}}>
+                      <td style={td}>Total</td>
+                      <td style={tdR}>{fmtRs(catData.reduce((s,c)=>s+c.saleTy,0))}</td>
+                      <td style={tdR}>{catData.reduce((s,c)=>s+c.qtyTy,0)}</td>
+                      <td style={tdR}>{catData.some(c=>c.man.saleLy)?fmtRs(catData.reduce((s,c)=>s+c.man.saleLy,0)):'—'}</td>
+                      <td style={tdR}>{catData.some(c=>c.man.qtyLy)?catData.reduce((s,c)=>s+c.man.qtyLy,0):'—'}</td>
+                      <td colSpan={4} style={td}></td>
+                      <td style={tdR}>{catData.some(c=>c.man.target)?catData.reduce((s,c)=>s+c.man.target,0).toLocaleString('en-IN'):'—'}</td>
+                      <td colSpan={2} style={td}></td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* ── Tab 8: Staff Wise ── */}
+      {activeTab === 8 && (() => {
+        const fRows=selMonth==='All'?salesRows:salesRows.filter(r=>r.MonthKey===selMonth);
+        const stData=buildStaffStats(fRows).map(s=>{
+          const man=staffTargets[s.name]||{target:0,lySale:0};
+          const achPct=man.target?(s.gsv/man.target*100):null;
+          const backlog=man.target?s.gsv-man.target:null;
+          const goly=man.lySale?((s.gsv/man.lySale)-1)*100:null;
+          return {...s,man,achPct,backlog,goly};
+        });
+        const inp: React.CSSProperties={width:90,padding:'3px 6px',fontSize:12,borderRadius:4,border:'1px solid var(--border)',background:'var(--bg2)',color:'var(--text1)'};
+        const totalWalking=Object.values(dsrManual).reduce((a,d)=>a+(d.walking||0),0);
+        return (
+          <div style={card}>
+            <div style={{fontWeight:700,fontSize:15,marginBottom:4}}>👥 Staff Wise Performance — {!rows.length?'Upload ASR first':activeLabel}</div>
+            {!rows.length?(
+              <div style={{padding:32,textAlign:'center',color:'var(--text2)',fontSize:13}}>Upload Article Sale Report CSV to view staff data.</div>
+            ):(
+              <div className="tbl-wrap">
+                <table>
+                  <thead><tr>{['Staff','Target ✎','Sale','Ach%','Backlog','Bills','Qty','AUPT','AVPT','LY Sale ✎','GOLY',''].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead>
+                  <tbody>
+                    {stData.map(s=>{
+                      const isEd=staffEditing===s.name;
+                      const ev=staffEditVals[s.name]||s.man;
+                      return (
+                        <tr key={s.name} style={{background:isEd?'rgba(29,78,216,0.06)':undefined}}>
+                          <td style={{...td,fontWeight:600}}>{s.name}</td>
+                          {isEd?(<>
+                            <td style={td}><input type="number" style={inp} value={ev.target||''} onChange={e=>setStaffEditVals(p=>({...p,[s.name]:{...ev,target:+e.target.value}}))}/></td>
+                            <td style={tdR}>{fmtRs(s.gsv)}</td>
+                            <td style={tdR}>—</td><td style={tdR}>—</td>
+                            <td style={tdR}>{s.bills}</td><td style={tdR}>{s.qty}</td>
+                            <td style={tdR}>{s.aupt.toFixed(2)}</td><td style={tdR}>{fmtRs(s.avpt)}</td>
+                            <td style={td}><input type="number" style={inp} value={ev.lySale||''} onChange={e=>setStaffEditVals(p=>({...p,[s.name]:{...ev,lySale:+e.target.value}}))}/></td>
+                            <td style={tdR}>—</td>
+                            <td style={td}>
+                              <button onClick={()=>{saveStaffTargets({...staffTargets,[s.name]:staffEditVals[s.name]||s.man});setStaffEditing(null);}} className="btn btn-brand btn-sm" style={{fontSize:11,marginRight:4}}>✓</button>
+                              <button onClick={()=>setStaffEditing(null)} className="btn btn-ghost btn-sm" style={{fontSize:11}}>✕</button>
+                            </td>
+                          </>):(<>
+                            <td style={tdR}>{s.man.target?s.man.target.toLocaleString('en-IN'):<span style={{color:'var(--text2)'}}>—</span>}</td>
+                            <td style={tdR}>{fmtRs(s.gsv)}</td>
+                            <td style={{...tdR,color:s.achPct==null?'var(--text2)':s.achPct>=100?'var(--green)':s.achPct>=80?'#d97706':'var(--red)'}}>{s.achPct!=null?`${s.achPct.toFixed(0)}%`:'—'}</td>
+                            <td style={{...tdR,color:s.backlog==null?'var(--text2)':s.backlog>=0?'var(--green)':'var(--red)'}}>{s.backlog!=null?(s.backlog>=0?'+':'-')+fmtRs(Math.abs(s.backlog)):'—'}</td>
+                            <td style={tdR}>{s.bills}</td><td style={tdR}>{s.qty}</td>
+                            <td style={{...tdR,color:s.aupt>=4?'var(--green)':'var(--text1)'}}>{s.aupt.toFixed(2)}</td>
+                            <td style={tdR}>{fmtRs(s.avpt)}</td>
+                            <td style={tdR}>{s.man.lySale?fmtRs(s.man.lySale):<span style={{color:'var(--text2)'}}>—</span>}</td>
+                            <td style={{...tdR,color:s.goly==null?'var(--text2)':s.goly>=0?'var(--green)':'var(--red)'}}>{s.goly!=null?`${s.goly>=0?'+':''}${s.goly.toFixed(0)}%`:'—'}</td>
+                            <td style={td}><button onClick={()=>{setStaffEditing(s.name);setStaffEditVals(p=>({...p,[s.name]:{...s.man}}));}} className="btn btn-ghost btn-sm" style={{fontSize:11}}>✎</button></td>
+                          </>)}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  <tfoot>
+                    <tr style={{background:'var(--bg2)',fontWeight:700}}>
+                      <td style={td}>Store Total</td>
+                      <td style={tdR}>{Object.values(staffTargets).some(v=>v.target)?Object.values(staffTargets).reduce((s,v)=>s+(v.target||0),0).toLocaleString('en-IN'):'—'}</td>
+                      <td style={tdR}>{fmtRs(stData.reduce((s,x)=>s+x.gsv,0))}</td>
+                      <td colSpan={2} style={td}></td>
+                      <td style={tdR}>{stData.reduce((s,x)=>s+x.bills,0)}</td>
+                      <td style={tdR}>{stData.reduce((s,x)=>s+x.qty,0)}</td>
+                      <td colSpan={5} style={td}></td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* ── Tab 9: Loss of Sale ── */}
+      {activeTab === 9 && (
+        <div>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
+            <div style={{fontWeight:700,fontSize:15}}>😞 Loss of Sale Tracker <span style={{fontSize:12,color:'var(--text2)',fontWeight:400}}>({losRows.length} entries)</span></div>
+            <button onClick={()=>setShowLosForm(true)} className="btn btn-brand btn-sm">+ Add Entry</button>
+          </div>
+          {showLosForm && (
+            <div style={{...card,border:'2px solid var(--brand)',marginBottom:16}}>
+              <div style={{fontWeight:700,fontSize:13,marginBottom:12}}>New Loss of Sale Entry</div>
+              <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:10}}>
+                {([['date','Date','date'],['customerName','Customer Name','text'],['contactNo','Contact No','tel'],['category','Category','text'],['subCategory','Sub Category','text'],['typeLevel','Type Level','text'],['ageGroup','Age Group','text'],['gender','Gender','text'],['priceRange','Price Range','text'],['staffName','Staff Name','text'],['followUpDate','Follow Up Date','date']] as [keyof LosEntry,string,string][]).map(([key,label,type])=>(
+                  <div key={key}>
+                    <label style={{fontSize:11,color:'var(--text2)',fontWeight:600,display:'block',marginBottom:3}}>{label}</label>
+                    <input type={type} value={(losForm as any)[key]||''} onChange={e=>setLosForm(p=>({...p,[key]:e.target.value}))}
+                      style={{width:'100%',padding:'6px 8px',fontSize:12,borderRadius:6,border:'1px solid var(--border)',background:'var(--bg2)',color:'var(--text1)',boxSizing:'border-box'}}/>
+                  </div>
+                ))}
+              </div>
+              {[['requirement','Customer Requirement'],['remark','Remark by Store Manager']] .map(([key,label])=>(
+                <div key={key} style={{marginTop:10}}>
+                  <label style={{fontSize:11,color:'var(--text2)',fontWeight:600,display:'block',marginBottom:3}}>{label}</label>
+                  <textarea value={(losForm as any)[key]||''} onChange={e=>setLosForm(p=>({...p,[key]:e.target.value}))}
+                    rows={2} style={{width:'100%',padding:'6px 8px',fontSize:12,borderRadius:6,border:'1px solid var(--border)',background:'var(--bg2)',color:'var(--text1)',resize:'vertical',boxSizing:'border-box'}}/>
+                </div>
+              ))}
+              <div style={{marginTop:10}}>
+                <label style={{fontSize:11,color:'var(--text2)',fontWeight:600,display:'block',marginBottom:3}}>Status</label>
+                <select value={losForm.status||''} onChange={e=>setLosForm(p=>({...p,status:e.target.value}))}
+                  style={{padding:'6px 10px',fontSize:12,borderRadius:6,border:'1px solid var(--border)',background:'var(--bg2)',color:'var(--text1)'}}>
+                  <option value="">— select —</option>
+                  {['Gap','Fulfilled','Pending','Follow Up'].map(s=><option key={s}>{s}</option>)}
+                </select>
+              </div>
+              <div style={{display:'flex',gap:8,marginTop:14}}>
+                <button onClick={()=>{const e:LosEntry={id:Date.now().toString(),store:'FC',...losForm}as LosEntry;saveLosRows([...losRows,e]);setLosForm({});setShowLosForm(false);}} className="btn btn-brand btn-sm">Save Entry</button>
+                <button onClick={()=>{setLosForm({});setShowLosForm(false);}} className="btn btn-ghost btn-sm">Cancel</button>
+              </div>
+            </div>
+          )}
+          <div style={card}>
+            {losRows.length===0?(
+              <div style={{padding:32,textAlign:'center',color:'var(--text2)',fontSize:13}}>No entries yet. Click "+ Add Entry" to record a customer loss of sale.</div>
+            ):(
+              <div className="tbl-wrap">
+                <table>
+                  <thead><tr>{['Date','Customer','Contact','Category','Sub Cat','Age','Gender','Price','Requirement','Remark','Status','Staff','Follow Up',''].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead>
+                  <tbody>
+                    {[...losRows].reverse().map(r=>(
+                      <tr key={r.id}>
+                        <td style={td}>{r.date}</td>
+                        <td style={{...td,fontWeight:600}}>{r.customerName}</td>
+                        <td style={td}>{r.contactNo}</td>
+                        <td style={td}>{r.category}</td>
+                        <td style={td}>{r.subCategory}</td>
+                        <td style={td}>{r.ageGroup}</td>
+                        <td style={td}>{r.gender}</td>
+                        <td style={td}>{r.priceRange}</td>
+                        <td style={{...td,maxWidth:180,whiteSpace:'normal'}}>{r.requirement}</td>
+                        <td style={{...td,maxWidth:150,whiteSpace:'normal',color:'var(--text2)'}}>{r.remark}</td>
+                        <td style={td}><span style={{padding:'2px 8px',borderRadius:12,fontSize:11,fontWeight:700,background:r.status==='Gap'?'rgba(239,68,68,0.12)':r.status==='Fulfilled'?'rgba(16,185,129,0.12)':'rgba(245,158,11,0.12)',color:r.status==='Gap'?'var(--red)':r.status==='Fulfilled'?'var(--green)':'#d97706'}}>{r.status||'—'}</span></td>
+                        <td style={td}>{r.staffName}</td>
+                        <td style={td}>{r.followUpDate}</td>
+                        <td style={td}><button onClick={()=>saveLosRows(losRows.filter(x=>x.id!==r.id))} className="btn btn-ghost btn-sm" style={{fontSize:11,color:'var(--red)'}}>✕</button></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Tab 10: CMP Tracker ── */}
+      {activeTab === 10 && (() => {
+        const [y,mo]=cmpMonth.split('-').map(Number);
+        const daysInMonth=new Date(y,mo,0).getDate();
+        const DNAMES=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+        const days=Array.from({length:daysInMonth},(_,i)=>{
+          const d=new Date(y,mo-1,i+1);
+          return {day:i+1,dayName:DNAMES[d.getDay()],key:d.toISOString().slice(0,10)};
+        });
+        const total=days.reduce((s,d)=>s+(cmpData[d.key]||0),0);
+        const filled=days.filter(d=>cmpData[d.key]!==undefined).length;
+        const startDow=new Date(y,mo-1,1).getDay();
+        return (
+          <div>
+            <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:16,flexWrap:'wrap'}}>
+              <div style={{fontWeight:700,fontSize:15}}>🎯 CMP Tracker</div>
+              <input type="month" value={cmpMonth} onChange={e=>setCmpMonth(e.target.value)}
+                style={{padding:'5px 10px',fontSize:13,borderRadius:6,border:'1px solid var(--border)',background:'var(--bg1)',color:'var(--text1)'}}/>
+              <div style={{fontSize:13,color:'var(--text2)'}}>Total: <strong style={{color:'var(--text1)'}}>{total}</strong> CMP · {filled}/{daysInMonth} days filled · Avg: {filled?(total/filled).toFixed(1):'—'}/day</div>
+            </div>
+            <div style={card}>
+              <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:8,marginBottom:8}}>
+                {DNAMES.map(d=><div key={d} style={{textAlign:'center',fontSize:11,fontWeight:700,color:'var(--text2)',padding:'4px 0'}}>{d}</div>)}
+              </div>
+              <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:8}}>
+                {Array.from({length:startDow},(_,i)=><div key={`e${i}`}/>)}
+                {days.map(({day,key})=>{
+                  const val=cmpData[key];
+                  return (
+                    <div key={key} style={{border:'1px solid var(--border)',borderRadius:8,padding:'8px 6px',background:val!=null&&val>0?'rgba(16,185,129,0.07)':'var(--bg2)',textAlign:'center'}}>
+                      <div style={{fontSize:10,color:'var(--text2)',marginBottom:4}}>{day}</div>
+                      <input type="number" min="0" value={val??''} placeholder="—"
+                        onChange={e=>{const n=e.target.value===''?undefined:+e.target.value;const nd={...cmpData};if(n===undefined)delete nd[key];else nd[key]=n;saveCmpData(nd);}}
+                        style={{width:'100%',padding:'3px 2px',fontSize:14,fontWeight:700,borderRadius:4,border:'1px solid var(--border)',background:'transparent',color:val&&val>0?'var(--green)':'var(--text1)',textAlign:'center'}}/>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,marginTop:12}}>
+              {[{label:'Total CMP',value:total,color:'#1d4ed8'},{label:'Days Recorded',value:`${filled}/${daysInMonth}`,color:'#059669'},{label:'Daily Average',value:filled?(total/filled).toFixed(1):'—',color:'#7c3aed'},{label:'Days Remaining',value:daysInMonth-filled,color:'#b45309'}].map(({label,value,color})=>(
+                <div key={label} style={{padding:'12px 16px',borderRadius:8,background:'var(--bg1)',border:'1px solid var(--border)'}}>
+                  <div style={{fontSize:11,color:'var(--text2)',fontWeight:600,marginBottom:4}}>{label}</div>
+                  <div style={{fontSize:18,fontWeight:700,color}}>{value}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
+
     </div>
   );
 }
