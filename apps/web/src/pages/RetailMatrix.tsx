@@ -922,8 +922,8 @@ export default function RetailMatrix() {
                               <td style={td}><input type="number" style={inp} value={dsrEdit.scrap??m.scrap??''} onChange={e=>setDsrEdit(p=>({...p,scrap:+e.target.value}))}/></td>
                               <td style={td}><input type="number" style={inp} value={dsrEdit.cmp??m.cmp??''} onChange={e=>setDsrEdit(p=>({...p,cmp:+e.target.value}))}/></td>
                               <td style={td}>
-                                <button onClick={()=>{saveDsrManual({...dsrManual,[d.dateKey]:{...m,...dsrEdit}as DsrManualEntry});setDsrEditing(null);setDsrEdit({});}} className="btn btn-brand btn-sm" style={{fontSize:11,marginRight:4}}>✓</button>
-                                <button onClick={()=>{setDsrEditing(null);setDsrEdit({});}} className="btn btn-ghost btn-sm" style={{fontSize:11}}>✕</button>
+                                <button type="button" onClick={()=>{saveDsrManual({...dsrManual,[d.dateKey]:{...m,...dsrEdit}as DsrManualEntry});setDsrEditing(null);setDsrEdit({});}} className="btn btn-brand btn-sm" style={{fontSize:11,marginRight:4}}>Save</button>
+                                <button type="button" onClick={()=>{setDsrEditing(null);setDsrEdit({});}} className="btn btn-ghost btn-sm" style={{fontSize:11}}>✕</button>
                               </td>
                             </>):(<>
                               <td style={{...tdR,color:pctAch==null?'var(--text2)':d.sale===0?'var(--text2)':pctAch>=100?'var(--green)':pctAch>=80?'#d97706':'var(--red)',fontWeight:d.sale>0?600:400}}>{d.sale>0?`₹${d.sale.toLocaleString('en-IN',{maximumFractionDigits:0})}`:<span style={{color:'var(--text2)'}}>—</span>}</td>
@@ -938,7 +938,7 @@ export default function RetailMatrix() {
                               <td style={{...tdR,color:goly==null?'var(--text2)':goly>=0?'var(--green)':'var(--red)'}}>{goly!=null?`${goly>=0?'+':''}${goly.toFixed(0)}%`:'—'}</td>
                               <td style={tdR}>{m.scrap||<span style={{color:'var(--text2)'}}>—</span>}</td>
                               <td style={tdR}>{m.cmp||<span style={{color:'var(--text2)'}}>—</span>}</td>
-                              <td style={td}>{!isFuture&&<button onClick={()=>{setDsrEditing(d.dateKey);setDsrEdit({});}} className="btn btn-ghost btn-sm" style={{fontSize:11}}>✎</button>}</td>
+                              <td style={td}>{!isFuture&&<button type="button" onClick={(e)=>{e.stopPropagation();setDsrEditing(d.dateKey);setDsrEdit({});}} className="btn btn-ghost btn-sm" style={{fontSize:11,minWidth:44,color:'var(--brand)'}}>Edit</button>}</td>
                             </>)}
                           </tr>
                         );
@@ -999,7 +999,7 @@ export default function RetailMatrix() {
                       const isEd=catEditing===cat;
                       const ev=catEditVals[cat]||man;
                       return (
-                        <tr key={cat} style={{background:isEd?'rgba(29,78,216,0.06)':undefined}}>
+                        <tr key={cat} style={{background:isEd?'rgba(29,78,216,0.10)':undefined,outline:isEd?'2px solid var(--brand)':undefined,outlineOffset:'-1px'}}>
                           <td style={{...td,fontWeight:600}}>{cat}</td>
                           <td style={tdR}>{fmtRs(saleTy)}</td><td style={tdR}>{qtyTy}</td>
                           {isEd?(<>
@@ -1010,8 +1010,8 @@ export default function RetailMatrix() {
                             <td style={td}><input type="number" style={inp} value={ev.target||''} onChange={e=>setCatEditVals(p=>({...p,[cat]:{...ev,target:+e.target.value}}))}/></td>
                             <td style={tdR}>—</td>
                             <td style={td}>
-                              <button onClick={()=>{saveCatTargets({...catTargets,[cat]:catEditVals[cat]||man});setCatEditing(null);}} className="btn btn-brand btn-sm" style={{fontSize:11,marginRight:4}}>✓</button>
-                              <button onClick={()=>setCatEditing(null)} className="btn btn-ghost btn-sm" style={{fontSize:11}}>✕</button>
+                              <button type="button" onClick={()=>{saveCatTargets({...catTargets,[cat]:catEditVals[cat]||man});setCatEditing(null);}} className="btn btn-brand btn-sm" style={{fontSize:11,marginRight:4}}>Save</button>
+                              <button type="button" onClick={()=>setCatEditing(null)} className="btn btn-ghost btn-sm" style={{fontSize:11}}>✕</button>
                             </td>
                           </>):(<>
                             <td style={tdR}>{man.saleLy?fmtRs(man.saleLy):<span style={{color:'var(--text2)'}}>—</span>}</td>
@@ -1022,7 +1022,7 @@ export default function RetailMatrix() {
                             <td style={tdR}>{contrib.toFixed(1)}%</td>
                             <td style={tdR}>{man.target?man.target.toLocaleString('en-IN'):<span style={{color:'var(--text2)'}}>—</span>}</td>
                             <td style={{...tdR,color:achPct==null?'var(--text2)':achPct>=100?'var(--green)':achPct>=80?'#d97706':'var(--red)'}}>{achPct!=null?`${achPct.toFixed(0)}%`:'—'}</td>
-                            <td style={td}><button onClick={()=>{setCatEditing(cat);setCatEditVals(p=>({...p,[cat]:{...man}}));}} className="btn btn-ghost btn-sm" style={{fontSize:11}}>✎</button></td>
+                            <td style={td}><button type="button" onClick={(e)=>{e.stopPropagation();setCatEditing(cat);setCatEditVals(p=>({...p,[cat]:{...man}}));}} className="btn btn-ghost btn-sm" style={{fontSize:11,minWidth:44,color:'var(--brand)'}}>Edit</button></td>
                           </>)}
                         </tr>
                       );
@@ -1073,7 +1073,7 @@ export default function RetailMatrix() {
                       const isEd=staffEditing===s.name;
                       const ev=staffEditVals[s.name]||s.man;
                       return (
-                        <tr key={s.name} style={{background:isEd?'rgba(29,78,216,0.06)':undefined}}>
+                        <tr key={s.name} style={{background:isEd?'rgba(29,78,216,0.10)':undefined,outline:isEd?'2px solid var(--brand)':undefined,outlineOffset:'-1px'}}>
                           <td style={{...td,fontWeight:600}}>{s.name}</td>
                           {isEd?(<>
                             <td style={td}><input type="number" style={inp} value={ev.target||''} onChange={e=>setStaffEditVals(p=>({...p,[s.name]:{...ev,target:+e.target.value}}))}/></td>
@@ -1084,8 +1084,8 @@ export default function RetailMatrix() {
                             <td style={td}><input type="number" style={inp} value={ev.lySale||''} onChange={e=>setStaffEditVals(p=>({...p,[s.name]:{...ev,lySale:+e.target.value}}))}/></td>
                             <td style={tdR}>—</td>
                             <td style={td}>
-                              <button onClick={()=>{saveStaffTargets({...staffTargets,[s.name]:staffEditVals[s.name]||s.man});setStaffEditing(null);}} className="btn btn-brand btn-sm" style={{fontSize:11,marginRight:4}}>✓</button>
-                              <button onClick={()=>setStaffEditing(null)} className="btn btn-ghost btn-sm" style={{fontSize:11}}>✕</button>
+                              <button type="button" onClick={()=>{saveStaffTargets({...staffTargets,[s.name]:staffEditVals[s.name]||s.man});setStaffEditing(null);}} className="btn btn-brand btn-sm" style={{fontSize:11,marginRight:4}}>Save</button>
+                              <button type="button" onClick={()=>setStaffEditing(null)} className="btn btn-ghost btn-sm" style={{fontSize:11}}>✕</button>
                             </td>
                           </>):(<>
                             <td style={tdR}>{s.man.target?s.man.target.toLocaleString('en-IN'):<span style={{color:'var(--text2)'}}>—</span>}</td>
@@ -1097,7 +1097,7 @@ export default function RetailMatrix() {
                             <td style={tdR}>{fmtRs(s.avpt)}</td>
                             <td style={tdR}>{s.man.lySale?fmtRs(s.man.lySale):<span style={{color:'var(--text2)'}}>—</span>}</td>
                             <td style={{...tdR,color:s.goly==null?'var(--text2)':s.goly>=0?'var(--green)':'var(--red)'}}>{s.goly!=null?`${s.goly>=0?'+':''}${s.goly.toFixed(0)}%`:'—'}</td>
-                            <td style={td}><button onClick={()=>{setStaffEditing(s.name);setStaffEditVals(p=>({...p,[s.name]:{...s.man}}));}} className="btn btn-ghost btn-sm" style={{fontSize:11}}>✎</button></td>
+                            <td style={td}><button type="button" onClick={(e)=>{e.stopPropagation();setStaffEditing(s.name);setStaffEditVals(p=>({...p,[s.name]:{...s.man}}));}} className="btn btn-ghost btn-sm" style={{fontSize:11,minWidth:44,color:'var(--brand)'}}>Edit</button></td>
                           </>)}
                         </tr>
                       );
