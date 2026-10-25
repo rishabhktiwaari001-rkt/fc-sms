@@ -1275,69 +1275,76 @@ export default function RetailMatrix() {
                 </div>
               </>
             ):(
-              /* ── Multi-month matrix view ── */
-              <div className="tbl-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th style={{...th,position:'sticky',left:0,background:'var(--bg1)',zIndex:2}}>Staff</th>
-                      {staffMonths.map(mk=>(
-                        <th key={mk} style={{...th,minWidth:110,textAlign:'right'}}>{monthLabel(mk)}</th>
-                      ))}
-                      <th style={{...th,minWidth:110,textAlign:'right',borderLeft:'2px solid var(--border)'}}>Total</th>
-                    </tr>
-                    <tr style={{fontSize:10,color:'var(--text2)'}}>
-                      <td style={{...td,position:'sticky',left:0,background:'var(--bg1)',zIndex:2,fontSize:10,color:'var(--text2)',fontStyle:'italic'}}>Sale / Bills / Qty</td>
-                      {staffMonths.map(mk=>(
-                        <td key={mk} style={{...tdR,fontSize:10,color:'var(--text2)',fontStyle:'italic'}}>₹ sale · bills · qty</td>
-                      ))}
-                      <td style={{...tdR,fontSize:10,color:'var(--text2)',fontStyle:'italic',borderLeft:'2px solid var(--border)'}}>₹ sale · bills · qty</td>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {allStaff.map(sp=>{
-                      const spTotal={gsv:0,bills:new Set<string>(),qty:0};
-                      for(const mk of staffMonths){const c=grid[sp]?.[mk];if(c){spTotal.gsv+=c.gsv;c.bills.forEach(b=>spTotal.bills.add(b));spTotal.qty+=c.qty;}}
-                      return (
-                        <tr key={sp}>
-                          <td style={{...td,fontWeight:600,position:'sticky',left:0,background:'var(--bg1)',zIndex:1}}>{sp}</td>
-                          {staffMonths.map(mk=>{
-                            const c=grid[sp]?.[mk];
-                            const hasData=c&&c.gsv>0;
-                            return (
-                              <td key={mk} style={{...tdR,background:hasData?'rgba(29,78,216,0.04)':undefined}}>
-                                {hasData?(
-                                  <>
-                                    <div style={{fontWeight:600,fontSize:12,color:'var(--text1)'}}>{fmtRs(c.gsv)}</div>
-                                    <div style={{fontSize:10,color:'var(--text2)',marginTop:1}}>{c.bills.size} bills · {c.qty} qty</div>
-                                  </>
-                                ):<span style={{color:'var(--text2)',fontSize:12}}>—</span>}
+              /* ── All Months: staff selector + month-wise detail ── */
+              <div>
+                {/* Staff filter */}
+                <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:14,flexWrap:'wrap'}}>
+                  <span style={{fontSize:12,fontWeight:600,color:'var(--text2)'}}>Staff:</span>
+                  {allStaff.map(sp=>(
+                    <button key={sp} onClick={()=>setStaffDrillStaff(staffDrillStaff===sp?'':sp)}
+                      className={`btn btn-sm ${staffDrillStaff===sp?'btn-brand':'btn-ghost'}`} style={{fontSize:12}}>{sp}</button>
+                  ))}
+                </div>
+                {!staffDrillStaff?(
+                  <div style={{padding:32,textAlign:'center',color:'var(--text2)',fontSize:13}}>
+                    👆 Select a staff member above to see their month-wise performance.
+                  </div>
+                ):(()=>{
+                  const spRows=salesRows.filter(r=>r.SalesPerson===staffDrillStaff);
+                  const spMonths=Array.from(new Set(spRows.map(r=>r.MonthKey))).sort();
+                  const mStats=spMonths.map(mk=>{
+                    const mr=spRows.filter(r=>r.MonthKey===mk);
+                    const billSet=new Set(mr.map(r=>r.InvoiceNumber));
+                    const gsv=mr.reduce((s,r)=>s+r.GSV,0);
+                    const qty=mr.reduce((s,r)=>s+r.Quantity,0);
+                    return {mk,gsv,bills:billSet.size,qty,aupt:billSet.size?qty/billSet.size:0,avpt:billSet.size?gsv/billSet.size:0};
+                  });
+                  const withMoM=mStats.map((m,i)=>({...m,mom:i===0||!mStats[i-1].gsv?null:((m.gsv/mStats[i-1].gsv)-1)*100}));
+                  const totalBillSet=new Set(spRows.map(r=>r.InvoiceNumber));
+                  const totGsv=spRows.reduce((s,r)=>s+r.GSV,0);
+                  const totQty=spRows.reduce((s,r)=>s+r.Quantity,0);
+                  const totBills=totalBillSet.size;
+                  // LY sale from stored targets
+                  const lySale=staffTargets[staffDrillStaff]?.lySale||0;
+                  const goly=lySale?(((totGsv/lySale)-1)*100):null;
+                  return (
+                    <div className="tbl-wrap">
+                      <table>
+                        <thead>
+                          <tr>{['Month','Sale','Bills','Qty','AUPT','AVPT','MoM Growth'].map(h=><th key={h} style={h==='Month'?th:{...th,textAlign:'right'}}>{h}</th>)}</tr>
+                        </thead>
+                        <tbody>
+                          {withMoM.map(m=>(
+                            <tr key={m.mk}>
+                              <td style={{...td,fontWeight:600}}>{monthLabel(m.mk)}</td>
+                              <td style={tdR}>{fmtRs(m.gsv)}</td>
+                              <td style={tdR}>{m.bills}</td>
+                              <td style={tdR}>{m.qty}</td>
+                              <td style={{...tdR,color:m.aupt>=4?'var(--green)':'var(--text1)'}}>{m.aupt.toFixed(2)}</td>
+                              <td style={tdR}>{fmtRs(m.avpt)}</td>
+                              <td style={{...tdR,fontWeight:600,color:m.mom==null?'var(--text2)':m.mom>=0?'var(--green)':'var(--red)'}}>
+                                {m.mom==null?'—':`${m.mom>=0?'+':''}${m.mom.toFixed(1)}%`}
                               </td>
-                            );
-                          })}
-                          <td style={{...tdR,borderLeft:'2px solid var(--border)',background:'rgba(29,78,216,0.07)'}}>
-                            <div style={{fontWeight:700,fontSize:12}}>{fmtRs(spTotal.gsv)}</div>
-                            <div style={{fontSize:10,color:'var(--text2)',marginTop:1}}>{spTotal.bills.size} bills · {spTotal.qty} qty</div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                  <tfoot>
-                    <tr style={{background:'var(--bg2)',fontWeight:700}}>
-                      <td style={{...td,position:'sticky',left:0,background:'var(--bg2)',zIndex:1}}>Store Total</td>
-                      {staffMonths.map(mk=>(
-                        <td key={mk} style={{...tdR}}>
-                          <div style={{fontSize:12}}>{fmtRs(monthTotals[mk].gsv)}</div>
-                          <div style={{fontSize:10,color:'var(--text2)',fontWeight:400,marginTop:1}}>{monthTotals[mk].bills.size} bills · {monthTotals[mk].qty} qty</div>
-                        </td>
-                      ))}
-                      <td style={{...tdR,borderLeft:'2px solid var(--border)'}}>
-                        <div style={{fontSize:12}}>{fmtRs(allStaff.reduce((s,sp)=>s+Object.values(grid[sp]||{}).reduce((a,c)=>a+c.gsv,0),0))}</div>
-                      </td>
-                    </tr>
-                  </tfoot>
-                </table>
+                            </tr>
+                          ))}
+                        </tbody>
+                        <tfoot>
+                          <tr style={{background:'var(--bg2)',fontWeight:700}}>
+                            <td style={td}>Total / Overall</td>
+                            <td style={tdR}>{fmtRs(totGsv)}</td>
+                            <td style={tdR}>{totBills}</td>
+                            <td style={tdR}>{totQty}</td>
+                            <td style={{...tdR,color:totBills&&totQty/totBills>=4?'var(--green)':'var(--text1)'}}>{totBills?(totQty/totBills).toFixed(2):'—'}</td>
+                            <td style={tdR}>{totBills?fmtRs(totGsv/totBills):'—'}</td>
+                            <td style={{...tdR,color:goly==null?'var(--text2)':goly>=0?'var(--green)':'var(--red)'}}>
+                              {goly!=null?`GOLY: ${goly>=0?'+':''}${goly.toFixed(1)}%`:(lySale?'—':'Set LY Sale in Edit')}
+                            </td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  );
+                })()}
               </div>
             )}
           </div>
