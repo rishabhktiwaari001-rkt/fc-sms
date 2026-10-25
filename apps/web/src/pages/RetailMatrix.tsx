@@ -173,7 +173,8 @@ export default function RetailMatrix() {
   const [cmpData, setCmpData] = useState<Record<string,number>>(() => { try { return JSON.parse(localStorage.getItem('rm_cmp')||'{}'); } catch { return {}; } });
   const [cmpMonth, setCmpMonth] = useState<string>(() => { const n=new Date(); return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}`; });
   const [staffSelMonth, setStaffSelMonth] = useState<string>('All');
-  const [staffViewMode, setStaffViewMode] = useState<'single'|'multi'>('single');
+  const [staffViewMode, setStaffViewMode] = useState<'single'|'multi'|'drill'>('single');
+  const [staffDrillStaff, setStaffDrillStaff] = useState<string>('');
 
   const saveLosRows = (r: LosEntry[]) => { setLosRows(r); try { localStorage.setItem('rm_los',JSON.stringify(r)); } catch {} };
   const saveDsrManual = (d: Record<string,DsrManualEntry>) => { setDsrManual(d); try { localStorage.setItem('rm_dsr',JSON.stringify(d)); } catch {} };
@@ -1094,17 +1095,124 @@ export default function RetailMatrix() {
           <div style={card}>
             {/* ── Header row ── */}
             <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:8,marginBottom:10}}>
-              <div style={{fontWeight:700,fontSize:15}}>👥 Staff Wise Performance{staffViewMode==='single'?` — ${!rows.length?'Upload ASR first':swLabel}`:' — Multi-Month Matrix'}</div>
+              <div style={{fontWeight:700,fontSize:15}}>👥 Staff Wise Performance{staffViewMode==='single'?` — ${!rows.length?'Upload ASR first':swLabel}`:staffViewMode==='multi'?' — Multi-Month Matrix':' — Staff Drill Down'}</div>
               {rows.length>0&&(
                 <div style={{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center'}}>
                   <button onClick={()=>setStaffViewMode('single')} className={`btn btn-sm ${staffViewMode==='single'?'btn-brand':'btn-ghost'}`} style={{fontSize:12}}>📋 Single Month</button>
                   <button onClick={()=>setStaffViewMode('multi')} className={`btn btn-sm ${staffViewMode==='multi'?'btn-brand':'btn-ghost'}`} style={{fontSize:12}}>📅 All Months</button>
+                  <button onClick={()=>setStaffViewMode('drill')} className={`btn btn-sm ${staffViewMode==='drill'?'btn-brand':'btn-ghost'}`} style={{fontSize:12}}>🔍 Staff Drill Down</button>
                 </div>
               )}
             </div>
 
             {!rows.length?(
               <div style={{padding:32,textAlign:'center',color:'var(--text2)',fontSize:13}}>Upload Article Sale Report CSV to view staff data.</div>
+            ):staffViewMode==='drill'?(
+              /* ── Staff Drill Down: pick a staff, see Category × Month pivot ── */
+              (() => {
+                const allStaffList=Array.from(new Set(salesRows.map(r=>r.SalesPerson))).filter(Boolean).sort();
+                const drillRows=staffDrillStaff?salesRows.filter(r=>r.SalesPerson===staffDrillStaff):[];
+                const drillMonths=Array.from(new Set(drillRows.map(r=>r.MonthKey))).sort();
+                // pivot: category → month → {gsv, bills, qty}
+                type DC={gsv:number;bills:Set<string>;qty:number};
+                const pivot:Record<string,Record<string,DC>>={};
+                for(const r of drillRows){
+                  if(!pivot[r.Category]) pivot[r.Category]={};
+                  if(!pivot[r.Category][r.MonthKey]) pivot[r.Category][r.MonthKey]={gsv:0,bills:new Set(),qty:0};
+                  pivot[r.Category][r.MonthKey].gsv+=r.GSV;
+                  pivot[r.Category][r.MonthKey].bills.add(r.InvoiceNumber);
+                  pivot[r.Category][r.MonthKey].qty+=r.Quantity;
+                }
+                const drillCats=Object.keys(pivot).sort();
+                // category totals
+                const catTotals:Record<string,{gsv:number;bills:Set<string>;qty:number}>={};
+                for(const cat of drillCats){
+                  catTotals[cat]={gsv:0,bills:new Set(),qty:0};
+                  for(const mk of drillMonths){const c=pivot[cat]?.[mk];if(c){catTotals[cat].gsv+=c.gsv;c.bills.forEach(b=>catTotals[cat].bills.add(b));catTotals[cat].qty+=c.qty;}}
+                }
+                // month totals
+                const mTotals:Record<string,{gsv:number;bills:Set<string>;qty:number}>={};
+                for(const mk of drillMonths){
+                  mTotals[mk]={gsv:0,bills:new Set(),qty:0};
+                  for(const cat of drillCats){const c=pivot[cat]?.[mk];if(c){mTotals[mk].gsv+=c.gsv;c.bills.forEach(b=>mTotals[mk].bills.add(b));mTotals[mk].qty+=c.qty;}}
+                }
+                const grandTotal={gsv:drillRows.reduce((s,r)=>s+r.GSV,0),bills:new Set(drillRows.map(r=>r.InvoiceNumber)),qty:drillRows.reduce((s,r)=>s+r.Quantity,0)};
+                return (
+                  <div>
+                    {/* Staff selector */}
+                    <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:14,flexWrap:'wrap'}}>
+                      <span style={{fontSize:13,fontWeight:600,color:'var(--text2)'}}>Select Staff:</span>
+                      <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+                        {allStaffList.map(sp=>(
+                          <button key={sp} onClick={()=>setStaffDrillStaff(staffDrillStaff===sp?'':sp)}
+                            className={`btn btn-sm ${staffDrillStaff===sp?'btn-brand':'btn-ghost'}`} style={{fontSize:12}}>{sp}</button>
+                        ))}
+                      </div>
+                    </div>
+                    {!staffDrillStaff?(
+                      <div style={{padding:32,textAlign:'center',color:'var(--text2)',fontSize:13}}>Select a staff member above to see their Category × Month breakdown.</div>
+                    ):drillCats.length===0?(
+                      <div style={{padding:32,textAlign:'center',color:'var(--text2)',fontSize:13}}>No sales data found for {staffDrillStaff}.</div>
+                    ):(
+                      <div className="tbl-wrap">
+                        <table>
+                          <thead>
+                            <tr>
+                              <th style={{...th,position:'sticky',left:0,background:'var(--bg1)',zIndex:2,minWidth:140}}>Category</th>
+                              {drillMonths.map(mk=><th key={mk} style={{...th,minWidth:110,textAlign:'right'}}>{monthLabel(mk)}</th>)}
+                              <th style={{...th,minWidth:110,textAlign:'right',borderLeft:'2px solid var(--border)'}}>Total</th>
+                            </tr>
+                            <tr>
+                              <td style={{...td,position:'sticky',left:0,background:'var(--bg1)',zIndex:2,fontSize:10,color:'var(--text2)',fontStyle:'italic'}}>₹ sale · bills · qty</td>
+                              {drillMonths.map(mk=><td key={mk} style={{...tdR,fontSize:10,color:'var(--text2)',fontStyle:'italic'}}>₹ sale · bills · qty</td>)}
+                              <td style={{...tdR,fontSize:10,color:'var(--text2)',fontStyle:'italic',borderLeft:'2px solid var(--border)'}}>₹ sale · bills · qty</td>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {drillCats.map(cat=>(
+                              <tr key={cat}>
+                                <td style={{...td,fontWeight:600,position:'sticky',left:0,background:'var(--bg1)',zIndex:1}}>{cat}</td>
+                                {drillMonths.map(mk=>{
+                                  const c=pivot[cat]?.[mk];
+                                  return (
+                                    <td key={mk} style={{...tdR,background:c&&c.gsv>0?'rgba(29,78,216,0.04)':undefined}}>
+                                      {c&&c.gsv>0?(
+                                        <>
+                                          <div style={{fontWeight:600,fontSize:12}}>{fmtRs(c.gsv)}</div>
+                                          <div style={{fontSize:10,color:'var(--text2)',marginTop:1}}>{c.bills.size} bills · {c.qty} qty</div>
+                                        </>
+                                      ):<span style={{color:'var(--text2)',fontSize:12}}>—</span>}
+                                    </td>
+                                  );
+                                })}
+                                <td style={{...tdR,borderLeft:'2px solid var(--border)',background:'rgba(29,78,216,0.07)'}}>
+                                  <div style={{fontWeight:700,fontSize:12}}>{fmtRs(catTotals[cat].gsv)}</div>
+                                  <div style={{fontSize:10,color:'var(--text2)',marginTop:1}}>{catTotals[cat].bills.size} bills · {catTotals[cat].qty} qty</div>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                          <tfoot>
+                            <tr style={{background:'var(--bg2)',fontWeight:700}}>
+                              <td style={{...td,position:'sticky',left:0,background:'var(--bg2)',zIndex:1}}>{staffDrillStaff} Total</td>
+                              {drillMonths.map(mk=>(
+                                <td key={mk} style={tdR}>
+                                  <div style={{fontSize:12}}>{fmtRs(mTotals[mk].gsv)}</div>
+                                  <div style={{fontSize:10,color:'var(--text2)',fontWeight:400,marginTop:1}}>{mTotals[mk].bills.size} bills · {mTotals[mk].qty} qty</div>
+                                </td>
+                              ))}
+                              <td style={{...tdR,borderLeft:'2px solid var(--border)'}}>
+                                <div style={{fontSize:12}}>{fmtRs(grandTotal.gsv)}</div>
+                                <div style={{fontSize:10,color:'var(--text2)',fontWeight:400,marginTop:1}}>{grandTotal.bills.size} bills · {grandTotal.qty} qty</div>
+                              </td>
+                            </tr>
+                          </tfoot>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()
             ):staffViewMode==='single'?(
               <>
                 {/* Single-month selector */}
