@@ -172,6 +172,7 @@ export default function RetailMatrix() {
   const [staffEditVals, setStaffEditVals] = useState<Record<string,{target:number;lySale:number}>>({});
   const [cmpData, setCmpData] = useState<Record<string,number>>(() => { try { return JSON.parse(localStorage.getItem('rm_cmp')||'{}'); } catch { return {}; } });
   const [cmpMonth, setCmpMonth] = useState<string>(() => { const n=new Date(); return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}`; });
+  const [staffSelMonth, setStaffSelMonth] = useState<string>('All');
 
   const saveLosRows = (r: LosEntry[]) => { setLosRows(r); try { localStorage.setItem('rm_los',JSON.stringify(r)); } catch {} };
   const saveDsrManual = (d: Record<string,DsrManualEntry>) => { setDsrManual(d); try { localStorage.setItem('rm_dsr',JSON.stringify(d)); } catch {} };
@@ -1054,7 +1055,8 @@ export default function RetailMatrix() {
 
       {/* ── Tab 8: Staff Wise ── */}
       {activeTab === 8 && (() => {
-        const fRows=selMonth==='All'?salesRows:salesRows.filter(r=>r.MonthKey===selMonth);
+        const staffMonths=Array.from(new Set(salesRows.map(r=>r.MonthKey))).sort();
+        const fRows=staffSelMonth==='All'?salesRows:salesRows.filter(r=>r.MonthKey===staffSelMonth);
         const stData=buildStaffStats(fRows).map(s=>{
           const man=staffTargets[s.name]||{target:0,lySale:0};
           const achPct=man.target?(s.gsv/man.target*100):null;
@@ -1064,9 +1066,20 @@ export default function RetailMatrix() {
         });
         const inp: React.CSSProperties={width:90,padding:'3px 6px',fontSize:12,borderRadius:4,border:'1px solid var(--border)',background:'var(--bg2)',color:'var(--text1)'};
         const totalWalking=Object.values(dsrManual).reduce((a,d)=>a+(d.walking||0),0);
+        const swLabel=staffSelMonth==='All'?'All Months':monthLabel(staffSelMonth);
         return (
           <div style={card}>
-            <div style={{fontWeight:700,fontSize:15,marginBottom:4}}>👥 Staff Wise Performance — {!rows.length?'Upload ASR first':activeLabel}</div>
+            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:8,marginBottom:10}}>
+              <div style={{fontWeight:700,fontSize:15}}>👥 Staff Wise Performance — {!rows.length?'Upload ASR first':swLabel}</div>
+              {rows.length>0&&(
+                <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+                  <button onClick={()=>setStaffSelMonth('All')} className={`btn btn-sm ${staffSelMonth==='All'?'btn-brand':'btn-ghost'}`} style={{fontSize:12}}>All</button>
+                  {staffMonths.map(mk=>(
+                    <button key={mk} onClick={()=>setStaffSelMonth(staffSelMonth===mk?'All':mk)} className={`btn btn-sm ${staffSelMonth===mk?'btn-brand':'btn-ghost'}`} style={{fontSize:12}}>{monthLabel(mk)}</button>
+                  ))}
+                </div>
+              )}
+            </div>
             {!rows.length?(
               <div style={{padding:32,textAlign:'center',color:'var(--text2)',fontSize:13}}>Upload Article Sale Report CSV to view staff data.</div>
             ):(
@@ -1176,7 +1189,15 @@ export default function RetailMatrix() {
                     <datalist id="los-type-opts">{losTypeOpts.map(t=><option key={t} value={t}/>)}</datalist>
                   </div>
                   {/* Remaining fields */}
-                  {([['ageGroup','Age Group','text'],['gender','Gender','text'],['priceRange','Price Range','text'],['staffName','Staff Name','text'],['followUpDate','Follow Up Date','date']] as [keyof LosEntry,string,string][]).map(([key,label,type])=>(
+                  {/* Age Group dropdown */}
+                  <div>
+                    <label style={{fontSize:11,color:'var(--text2)',fontWeight:600,display:'block',marginBottom:3}}>Age Group</label>
+                    <select value={losForm.ageGroup||''} onChange={e=>setLosForm(p=>({...p,ageGroup:e.target.value}))} style={selStyle}>
+                      <option value="">— select —</option>
+                      {['0-3 Months','3-6 Months','6-12 Months','1-2 Years','2-3 Years','3-4 Years','4-5 Years','5-6 Years','6-8 Years','8-10 Years','10-12 Years','12-14 Years','14+ Years'].map(ag=><option key={ag} value={ag}>{ag}</option>)}
+                    </select>
+                  </div>
+                  {([['gender','Gender','text'],['priceRange','Price Range','text'],['staffName','Staff Name','text'],['followUpDate','Follow Up Date','date']] as [keyof LosEntry,string,string][]).map(([key,label,type])=>(
                     <div key={key}>
                       <label style={{fontSize:11,color:'var(--text2)',fontWeight:600,display:'block',marginBottom:3}}>{label}</label>
                       <input type={type} value={(losForm as any)[key]||''} onChange={e=>setLosForm(p=>({...p,[key]:e.target.value}))} style={inpStyle}/>
