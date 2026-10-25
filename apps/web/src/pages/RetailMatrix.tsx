@@ -154,6 +154,10 @@ export default function RetailMatrix() {
   const [losRows, setLosRows] = useState<LosEntry[]>(() => { try { return JSON.parse(localStorage.getItem('rm_los')||'[]'); } catch { return []; } });
   const [showLosForm, setShowLosForm] = useState(false);
   const [losForm, setLosForm] = useState<Partial<LosEntry>>({});
+  const [losFilterCat, setLosFilterCat] = useState('');
+  const [losFilterSub, setLosFilterSub] = useState('');
+  const [losFilterDateFrom, setLosFilterDateFrom] = useState('');
+  const [losFilterDateTo, setLosFilterDateTo] = useState('');
   const [dsrManual, setDsrManual] = useState<Record<string,DsrManualEntry>>(() => { try { return JSON.parse(localStorage.getItem('rm_dsr')||'{}'); } catch { return {}; } });
   const [dsrEditing, setDsrEditing] = useState<string|null>(null);
   const [dsrEdit, setDsrEdit] = useState<Partial<DsrManualEntry>>({});
@@ -1128,69 +1132,148 @@ export default function RetailMatrix() {
             <div style={{fontWeight:700,fontSize:15}}>😞 Loss of Sale Tracker <span style={{fontSize:12,color:'var(--text2)',fontWeight:400}}>({losRows.length} entries)</span></div>
             <button onClick={()=>setShowLosForm(true)} className="btn btn-brand btn-sm">+ Add Entry</button>
           </div>
-          {showLosForm && (
-            <div style={{...card,border:'2px solid var(--brand)',marginBottom:16}}>
-              <div style={{fontWeight:700,fontSize:13,marginBottom:12}}>New Loss of Sale Entry</div>
-              <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:10}}>
-                {([['date','Date','date'],['customerName','Customer Name','text'],['contactNo','Contact No','tel'],['category','Category','text'],['subCategory','Sub Category','text'],['typeLevel','Type Level','text'],['ageGroup','Age Group','text'],['gender','Gender','text'],['priceRange','Price Range','text'],['staffName','Staff Name','text'],['followUpDate','Follow Up Date','date']] as [keyof LosEntry,string,string][]).map(([key,label,type])=>(
-                  <div key={key}>
+          {showLosForm && (() => {
+            const losCats = Array.from(new Set(salesRows.map(r=>r.Category).filter(Boolean))).sort() as string[];
+            const losSubs = (losForm.category
+              ? salesRows.filter(r=>r.Category===losForm.category)
+              : salesRows
+            ).reduce((acc,r)=>{if(r.SubCategory&&!acc.includes(r.SubCategory))acc.push(r.SubCategory);return acc;},[] as string[]).sort();
+            const losTypeOpts = Array.from(new Set(losRows.map(r=>r.typeLevel).filter(Boolean))).sort() as string[];
+            const selStyle:React.CSSProperties = {width:'100%',padding:'6px 8px',fontSize:12,borderRadius:6,border:'1px solid var(--border)',background:'var(--bg2)',color:'var(--text1)',boxSizing:'border-box'};
+            const inpStyle:React.CSSProperties = {width:'100%',padding:'6px 8px',fontSize:12,borderRadius:6,border:'1px solid var(--border)',background:'var(--bg2)',color:'var(--text1)',boxSizing:'border-box'};
+            return (
+              <div style={{...card,border:'2px solid var(--brand)',marginBottom:16}}>
+                <div style={{fontWeight:700,fontSize:13,marginBottom:12}}>New Loss of Sale Entry</div>
+                <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:10}}>
+                  {/* Static inputs: date, customer, contact */}
+                  {([['date','Date','date'],['customerName','Customer Name','text'],['contactNo','Contact No','tel']] as [keyof LosEntry,string,string][]).map(([key,label,type])=>(
+                    <div key={key}>
+                      <label style={{fontSize:11,color:'var(--text2)',fontWeight:600,display:'block',marginBottom:3}}>{label}</label>
+                      <input type={type} value={(losForm as any)[key]||''} onChange={e=>setLosForm(p=>({...p,[key]:e.target.value}))} style={inpStyle}/>
+                    </div>
+                  ))}
+                  {/* Category dropdown from ASR data */}
+                  <div>
+                    <label style={{fontSize:11,color:'var(--text2)',fontWeight:600,display:'block',marginBottom:3}}>Category</label>
+                    <select value={losForm.category||''} onChange={e=>setLosForm(p=>({...p,category:e.target.value,subCategory:''}))} style={selStyle}>
+                      <option value="">— select —</option>
+                      {losCats.map(c=><option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </div>
+                  {/* Sub Category dropdown — cascades from selected category */}
+                  <div>
+                    <label style={{fontSize:11,color:'var(--text2)',fontWeight:600,display:'block',marginBottom:3}}>Sub Category</label>
+                    <select value={losForm.subCategory||''} onChange={e=>setLosForm(p=>({...p,subCategory:e.target.value}))} style={selStyle}>
+                      <option value="">— select —</option>
+                      {losSubs.map(s=><option key={s} value={s}>{s}</option>)}
+                    </select>
+                  </div>
+                  {/* Type Level — text with datalist from existing entries */}
+                  <div>
+                    <label style={{fontSize:11,color:'var(--text2)',fontWeight:600,display:'block',marginBottom:3}}>Type Level</label>
+                    <input list="los-type-opts" value={losForm.typeLevel||''} onChange={e=>setLosForm(p=>({...p,typeLevel:e.target.value}))} placeholder="Type or select..." style={inpStyle}/>
+                    <datalist id="los-type-opts">{losTypeOpts.map(t=><option key={t} value={t}/>)}</datalist>
+                  </div>
+                  {/* Remaining fields */}
+                  {([['ageGroup','Age Group','text'],['gender','Gender','text'],['priceRange','Price Range','text'],['staffName','Staff Name','text'],['followUpDate','Follow Up Date','date']] as [keyof LosEntry,string,string][]).map(([key,label,type])=>(
+                    <div key={key}>
+                      <label style={{fontSize:11,color:'var(--text2)',fontWeight:600,display:'block',marginBottom:3}}>{label}</label>
+                      <input type={type} value={(losForm as any)[key]||''} onChange={e=>setLosForm(p=>({...p,[key]:e.target.value}))} style={inpStyle}/>
+                    </div>
+                  ))}
+                </div>
+                {[['requirement','Customer Requirement'],['remark','Remark by Store Manager']].map(([key,label])=>(
+                  <div key={key} style={{marginTop:10}}>
                     <label style={{fontSize:11,color:'var(--text2)',fontWeight:600,display:'block',marginBottom:3}}>{label}</label>
-                    <input type={type} value={(losForm as any)[key]||''} onChange={e=>setLosForm(p=>({...p,[key]:e.target.value}))}
-                      style={{width:'100%',padding:'6px 8px',fontSize:12,borderRadius:6,border:'1px solid var(--border)',background:'var(--bg2)',color:'var(--text1)',boxSizing:'border-box'}}/>
+                    <textarea value={(losForm as any)[key]||''} onChange={e=>setLosForm(p=>({...p,[key]:e.target.value}))}
+                      rows={2} style={{width:'100%',padding:'6px 8px',fontSize:12,borderRadius:6,border:'1px solid var(--border)',background:'var(--bg2)',color:'var(--text1)',resize:'vertical',boxSizing:'border-box'}}/>
                   </div>
                 ))}
-              </div>
-              {[['requirement','Customer Requirement'],['remark','Remark by Store Manager']] .map(([key,label])=>(
-                <div key={key} style={{marginTop:10}}>
-                  <label style={{fontSize:11,color:'var(--text2)',fontWeight:600,display:'block',marginBottom:3}}>{label}</label>
-                  <textarea value={(losForm as any)[key]||''} onChange={e=>setLosForm(p=>({...p,[key]:e.target.value}))}
-                    rows={2} style={{width:'100%',padding:'6px 8px',fontSize:12,borderRadius:6,border:'1px solid var(--border)',background:'var(--bg2)',color:'var(--text1)',resize:'vertical',boxSizing:'border-box'}}/>
+                <div style={{marginTop:10}}>
+                  <label style={{fontSize:11,color:'var(--text2)',fontWeight:600,display:'block',marginBottom:3}}>Status</label>
+                  <select value={losForm.status||''} onChange={e=>setLosForm(p=>({...p,status:e.target.value}))}
+                    style={{padding:'6px 10px',fontSize:12,borderRadius:6,border:'1px solid var(--border)',background:'var(--bg2)',color:'var(--text1)'}}>
+                    <option value="">— select —</option>
+                    {['Gap','Fulfilled','Pending','Follow Up'].map(s=><option key={s}>{s}</option>)}
+                  </select>
                 </div>
-              ))}
-              <div style={{marginTop:10}}>
-                <label style={{fontSize:11,color:'var(--text2)',fontWeight:600,display:'block',marginBottom:3}}>Status</label>
-                <select value={losForm.status||''} onChange={e=>setLosForm(p=>({...p,status:e.target.value}))}
-                  style={{padding:'6px 10px',fontSize:12,borderRadius:6,border:'1px solid var(--border)',background:'var(--bg2)',color:'var(--text1)'}}>
-                  <option value="">— select —</option>
-                  {['Gap','Fulfilled','Pending','Follow Up'].map(s=><option key={s}>{s}</option>)}
-                </select>
+                <div style={{display:'flex',gap:8,marginTop:14}}>
+                  <button onClick={()=>{const e:LosEntry={id:Date.now().toString(),store:'FC',...losForm}as LosEntry;saveLosRows([...losRows,e]);setLosForm({});setShowLosForm(false);}} className="btn btn-brand btn-sm">Save Entry</button>
+                  <button onClick={()=>{setLosForm({});setShowLosForm(false);}} className="btn btn-ghost btn-sm">Cancel</button>
+                </div>
               </div>
-              <div style={{display:'flex',gap:8,marginTop:14}}>
-                <button onClick={()=>{const e:LosEntry={id:Date.now().toString(),store:'FC',...losForm}as LosEntry;saveLosRows([...losRows,e]);setLosForm({});setShowLosForm(false);}} className="btn btn-brand btn-sm">Save Entry</button>
-                <button onClick={()=>{setLosForm({});setShowLosForm(false);}} className="btn btn-ghost btn-sm">Cancel</button>
-              </div>
+            );
+          })()}
+          {/* ── Filter bar ── */}
+          <div style={{...card,marginBottom:12,padding:'10px 14px'}}>
+            <div style={{display:'flex',gap:10,flexWrap:'wrap',alignItems:'center'}}>
+              <span style={{fontSize:12,fontWeight:600,color:'var(--text2)'}}>🔍 Filter:</span>
+              <input type="date" value={losFilterDateFrom} onChange={e=>setLosFilterDateFrom(e.target.value)} title="From date"
+                style={{padding:'5px 8px',fontSize:12,borderRadius:6,border:'1px solid var(--border)',background:'var(--bg1)',color:'var(--text1)'}}/>
+              <span style={{fontSize:12,color:'var(--text2)'}}>→</span>
+              <input type="date" value={losFilterDateTo} onChange={e=>setLosFilterDateTo(e.target.value)} title="To date"
+                style={{padding:'5px 8px',fontSize:12,borderRadius:6,border:'1px solid var(--border)',background:'var(--bg1)',color:'var(--text1)'}}/>
+              <select value={losFilterCat} onChange={e=>{setLosFilterCat(e.target.value);setLosFilterSub('');}}
+                style={{padding:'5px 8px',fontSize:12,borderRadius:6,border:'1px solid var(--border)',background:'var(--bg1)',color:'var(--text1)'}}>
+                <option value="">All Categories</option>
+                {Array.from(new Set([...salesRows.map(r=>r.Category),...losRows.map(r=>r.category)].filter(Boolean))).sort().map(c=><option key={c} value={c}>{c}</option>)}
+              </select>
+              <select value={losFilterSub} onChange={e=>setLosFilterSub(e.target.value)}
+                style={{padding:'5px 8px',fontSize:12,borderRadius:6,border:'1px solid var(--border)',background:'var(--bg1)',color:'var(--text1)'}}>
+                <option value="">All Sub-Categories</option>
+                {Array.from(new Set(
+                  (losFilterCat
+                    ? [...salesRows.filter(r=>r.Category===losFilterCat).map(r=>r.SubCategory),...losRows.filter(r=>r.category===losFilterCat).map(r=>r.subCategory)]
+                    : [...salesRows.map(r=>r.SubCategory),...losRows.map(r=>r.subCategory)]
+                  ).filter(Boolean)
+                )).sort().map(s=><option key={s} value={s}>{s}</option>)}
+              </select>
+              {(losFilterCat||losFilterSub||losFilterDateFrom||losFilterDateTo)&&(
+                <button onClick={()=>{setLosFilterCat('');setLosFilterSub('');setLosFilterDateFrom('');setLosFilterDateTo('');}} className="btn btn-ghost btn-sm" style={{fontSize:11}}>✕ Clear</button>
+              )}
             </div>
-          )}
+          </div>
+          {/* ── Entries table ── */}
           <div style={card}>
-            {losRows.length===0?(
-              <div style={{padding:32,textAlign:'center',color:'var(--text2)',fontSize:13}}>No entries yet. Click "+ Add Entry" to record a customer loss of sale.</div>
-            ):(
-              <div className="tbl-wrap">
-                <table>
-                  <thead><tr>{['Date','Customer','Contact','Category','Sub Cat','Age','Gender','Price','Requirement','Remark','Status','Staff','Follow Up',''].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead>
-                  <tbody>
-                    {[...losRows].reverse().map(r=>(
-                      <tr key={r.id}>
-                        <td style={td}>{r.date}</td>
-                        <td style={{...td,fontWeight:600}}>{r.customerName}</td>
-                        <td style={td}>{r.contactNo}</td>
-                        <td style={td}>{r.category}</td>
-                        <td style={td}>{r.subCategory}</td>
-                        <td style={td}>{r.ageGroup}</td>
-                        <td style={td}>{r.gender}</td>
-                        <td style={td}>{r.priceRange}</td>
-                        <td style={{...td,maxWidth:180,whiteSpace:'normal'}}>{r.requirement}</td>
-                        <td style={{...td,maxWidth:150,whiteSpace:'normal',color:'var(--text2)'}}>{r.remark}</td>
-                        <td style={td}><span style={{padding:'2px 8px',borderRadius:12,fontSize:11,fontWeight:700,background:r.status==='Gap'?'rgba(239,68,68,0.12)':r.status==='Fulfilled'?'rgba(16,185,129,0.12)':'rgba(245,158,11,0.12)',color:r.status==='Gap'?'var(--red)':r.status==='Fulfilled'?'var(--green)':'#d97706'}}>{r.status||'—'}</span></td>
-                        <td style={td}>{r.staffName}</td>
-                        <td style={td}>{r.followUpDate}</td>
-                        <td style={td}><button onClick={()=>saveLosRows(losRows.filter(x=>x.id!==r.id))} className="btn btn-ghost btn-sm" style={{fontSize:11,color:'var(--red)'}}>✕</button></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+            {(() => {
+              let filtered=[...losRows].reverse();
+              if(losFilterDateFrom) filtered=filtered.filter(r=>r.date>=losFilterDateFrom);
+              if(losFilterDateTo) filtered=filtered.filter(r=>r.date<=losFilterDateTo);
+              if(losFilterCat) filtered=filtered.filter(r=>r.category===losFilterCat);
+              if(losFilterSub) filtered=filtered.filter(r=>r.subCategory===losFilterSub);
+              return filtered.length===0?(
+                <div style={{padding:32,textAlign:'center',color:'var(--text2)',fontSize:13}}>
+                  {losRows.length===0?'No entries yet. Click "+ Add Entry" to record a customer loss of sale.':`No entries match the selected filters. (${losRows.length} total)`}
+                </div>
+              ):(
+                <div className="tbl-wrap">
+                  <table>
+                    <thead><tr>{['Date','Customer','Contact','Category','Sub Cat','Type','Age','Gender','Price','Requirement','Remark','Status','Staff','Follow Up',''].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead>
+                    <tbody>
+                      {filtered.map(r=>(
+                        <tr key={r.id}>
+                          <td style={td}>{r.date}</td>
+                          <td style={{...td,fontWeight:600}}>{r.customerName}</td>
+                          <td style={td}>{r.contactNo}</td>
+                          <td style={td}>{r.category}</td>
+                          <td style={td}>{r.subCategory}</td>
+                          <td style={td}>{r.typeLevel}</td>
+                          <td style={td}>{r.ageGroup}</td>
+                          <td style={td}>{r.gender}</td>
+                          <td style={td}>{r.priceRange}</td>
+                          <td style={{...td,maxWidth:180,whiteSpace:'normal'}}>{r.requirement}</td>
+                          <td style={{...td,maxWidth:150,whiteSpace:'normal',color:'var(--text2)'}}>{r.remark}</td>
+                          <td style={td}><span style={{padding:'2px 8px',borderRadius:12,fontSize:11,fontWeight:700,background:r.status==='Gap'?'rgba(239,68,68,0.12)':r.status==='Fulfilled'?'rgba(16,185,129,0.12)':'rgba(245,158,11,0.12)',color:r.status==='Gap'?'var(--red)':r.status==='Fulfilled'?'var(--green)':'#d97706'}}>{r.status||'—'}</span></td>
+                          <td style={td}>{r.staffName}</td>
+                          <td style={td}>{r.followUpDate}</td>
+                          <td style={td}><button onClick={()=>saveLosRows(losRows.filter(x=>x.id!==r.id))} className="btn btn-ghost btn-sm" style={{fontSize:11,color:'var(--red)'}}>✕</button></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              );
+            })()}
           </div>
         </div>
       )}
