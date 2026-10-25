@@ -173,6 +173,7 @@ export default function RetailMatrix() {
   const [cmpData, setCmpData] = useState<Record<string,number>>(() => { try { return JSON.parse(localStorage.getItem('rm_cmp')||'{}'); } catch { return {}; } });
   const [cmpMonth, setCmpMonth] = useState<string>(() => { const n=new Date(); return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}`; });
   const [staffSelMonth, setStaffSelMonth] = useState<string>('All');
+  const [staffViewMode, setStaffViewMode] = useState<'single'|'multi'>('single');
 
   const saveLosRows = (r: LosEntry[]) => { setLosRows(r); try { localStorage.setItem('rm_los',JSON.stringify(r)); } catch {} };
   const saveDsrManual = (d: Record<string,DsrManualEntry>) => { setDsrManual(d); try { localStorage.setItem('rm_dsr',JSON.stringify(d)); } catch {} };
@@ -1065,71 +1066,167 @@ export default function RetailMatrix() {
           return {...s,man,achPct,backlog,goly};
         });
         const inp: React.CSSProperties={width:90,padding:'3px 6px',fontSize:12,borderRadius:4,border:'1px solid var(--border)',background:'var(--bg2)',color:'var(--text1)'};
-        const totalWalking=Object.values(dsrManual).reduce((a,d)=>a+(d.walking||0),0);
         const swLabel=staffSelMonth==='All'?'All Months':monthLabel(staffSelMonth);
+
+        // ── Multi-month matrix data ──
+        // grid[staffName][monthKey] = {gsv, bills, qty}
+        const allStaff=Array.from(new Set(salesRows.map(r=>r.SalesPerson))).filter(Boolean).sort();
+        type MCell={gsv:number;bills:Set<string>;qty:number};
+        const grid:Record<string,Record<string,MCell>>={};
+        for(const sp of allStaff) grid[sp]={};
+        for(const r of salesRows){
+          if(!grid[r.SalesPerson]) grid[r.SalesPerson]={};
+          if(!grid[r.SalesPerson][r.MonthKey]) grid[r.SalesPerson][r.MonthKey]={gsv:0,bills:new Set(),qty:0};
+          grid[r.SalesPerson][r.MonthKey].gsv+=r.GSV;
+          grid[r.SalesPerson][r.MonthKey].bills.add(r.InvoiceNumber);
+          grid[r.SalesPerson][r.MonthKey].qty+=r.Quantity;
+        }
+        const monthTotals:Record<string,{gsv:number;bills:Set<string>;qty:number}>={};
+        for(const mk of staffMonths){
+          monthTotals[mk]={gsv:0,bills:new Set(),qty:0};
+          for(const sp of allStaff){
+            const c=grid[sp]?.[mk];
+            if(c){monthTotals[mk].gsv+=c.gsv;c.bills.forEach(b=>monthTotals[mk].bills.add(b));monthTotals[mk].qty+=c.qty;}
+          }
+        }
+
         return (
           <div style={card}>
+            {/* ── Header row ── */}
             <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:8,marginBottom:10}}>
-              <div style={{fontWeight:700,fontSize:15}}>👥 Staff Wise Performance — {!rows.length?'Upload ASR first':swLabel}</div>
+              <div style={{fontWeight:700,fontSize:15}}>👥 Staff Wise Performance{staffViewMode==='single'?` — ${!rows.length?'Upload ASR first':swLabel}`:' — Multi-Month Matrix'}</div>
               {rows.length>0&&(
-                <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+                <div style={{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center'}}>
+                  <button onClick={()=>setStaffViewMode('single')} className={`btn btn-sm ${staffViewMode==='single'?'btn-brand':'btn-ghost'}`} style={{fontSize:12}}>📋 Single Month</button>
+                  <button onClick={()=>setStaffViewMode('multi')} className={`btn btn-sm ${staffViewMode==='multi'?'btn-brand':'btn-ghost'}`} style={{fontSize:12}}>📅 All Months</button>
+                </div>
+              )}
+            </div>
+
+            {!rows.length?(
+              <div style={{padding:32,textAlign:'center',color:'var(--text2)',fontSize:13}}>Upload Article Sale Report CSV to view staff data.</div>
+            ):staffViewMode==='single'?(
+              <>
+                {/* Single-month selector */}
+                <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:12}}>
                   <button onClick={()=>setStaffSelMonth('All')} className={`btn btn-sm ${staffSelMonth==='All'?'btn-brand':'btn-ghost'}`} style={{fontSize:12}}>All</button>
                   {staffMonths.map(mk=>(
                     <button key={mk} onClick={()=>setStaffSelMonth(staffSelMonth===mk?'All':mk)} className={`btn btn-sm ${staffSelMonth===mk?'btn-brand':'btn-ghost'}`} style={{fontSize:12}}>{monthLabel(mk)}</button>
                   ))}
                 </div>
-              )}
-            </div>
-            {!rows.length?(
-              <div style={{padding:32,textAlign:'center',color:'var(--text2)',fontSize:13}}>Upload Article Sale Report CSV to view staff data.</div>
+                <div className="tbl-wrap">
+                  <table>
+                    <thead><tr>{['Staff','Target ✎','Sale','Ach%','Backlog','Bills','Qty','AUPT','AVPT','LY Sale ✎','GOLY',''].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead>
+                    <tbody>
+                      {stData.map(s=>{
+                        const isEd=staffEditing===s.name;
+                        const ev=staffEditVals[s.name]||s.man;
+                        return (
+                          <tr key={s.name} style={{background:isEd?'rgba(29,78,216,0.10)':undefined}}>
+                            <td style={{...td,fontWeight:600}}>{s.name}</td>
+                            {isEd?(<>
+                              <td style={td}><input type="number" style={inp} value={ev.target||''} onChange={e=>setStaffEditVals(p=>({...p,[s.name]:{...ev,target:+e.target.value}}))}/></td>
+                              <td style={tdR}>{fmtRs(s.gsv)}</td>
+                              <td style={tdR}>—</td><td style={tdR}>—</td>
+                              <td style={tdR}>{s.bills}</td><td style={tdR}>{s.qty}</td>
+                              <td style={tdR}>{s.aupt.toFixed(2)}</td><td style={tdR}>{fmtRs(s.avpt)}</td>
+                              <td style={td}><input type="number" style={inp} value={ev.lySale||''} onChange={e=>setStaffEditVals(p=>({...p,[s.name]:{...ev,lySale:+e.target.value}}))}/></td>
+                              <td style={tdR}>—</td>
+                              <td style={td}>
+                                <button type="button" onClick={()=>{saveStaffTargets({...staffTargets,[s.name]:staffEditVals[s.name]||s.man});setStaffEditing(null);}} className="btn btn-brand btn-sm" style={{fontSize:11,marginRight:4}}>Save</button>
+                                <button type="button" onClick={()=>setStaffEditing(null)} className="btn btn-ghost btn-sm" style={{fontSize:11}}>✕</button>
+                              </td>
+                            </>):(<>
+                              <td style={tdR}>{s.man.target?s.man.target.toLocaleString('en-IN'):<span style={{color:'var(--text2)'}}>—</span>}</td>
+                              <td style={tdR}>{fmtRs(s.gsv)}</td>
+                              <td style={{...tdR,color:s.achPct==null?'var(--text2)':s.achPct>=100?'var(--green)':s.achPct>=80?'#d97706':'var(--red)'}}>{s.achPct!=null?`${s.achPct.toFixed(0)}%`:'—'}</td>
+                              <td style={{...tdR,color:s.backlog==null?'var(--text2)':s.backlog>=0?'var(--green)':'var(--red)'}}>{s.backlog!=null?(s.backlog>=0?'+':'-')+fmtRs(Math.abs(s.backlog)):'—'}</td>
+                              <td style={tdR}>{s.bills}</td><td style={tdR}>{s.qty}</td>
+                              <td style={{...tdR,color:s.aupt>=4?'var(--green)':'var(--text1)'}}>{s.aupt.toFixed(2)}</td>
+                              <td style={tdR}>{fmtRs(s.avpt)}</td>
+                              <td style={tdR}>{s.man.lySale?fmtRs(s.man.lySale):<span style={{color:'var(--text2)'}}>—</span>}</td>
+                              <td style={{...tdR,color:s.goly==null?'var(--text2)':s.goly>=0?'var(--green)':'var(--red)'}}>{s.goly!=null?`${s.goly>=0?'+':''}${s.goly.toFixed(0)}%`:'—'}</td>
+                              <td style={td}><button type="button" onClick={(e)=>{e.stopPropagation();setStaffEditing(s.name);setStaffEditVals(p=>({...p,[s.name]:{...s.man}}));}} className="btn btn-ghost btn-sm" style={{fontSize:11,minWidth:44,color:'var(--brand)'}}>Edit</button></td>
+                            </>)}
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                    <tfoot>
+                      <tr style={{background:'var(--bg2)',fontWeight:700}}>
+                        <td style={td}>Store Total</td>
+                        <td style={tdR}>{Object.values(staffTargets).some(v=>v.target)?Object.values(staffTargets).reduce((s,v)=>s+(v.target||0),0).toLocaleString('en-IN'):'—'}</td>
+                        <td style={tdR}>{fmtRs(stData.reduce((s,x)=>s+x.gsv,0))}</td>
+                        <td colSpan={2} style={td}></td>
+                        <td style={tdR}>{stData.reduce((s,x)=>s+x.bills,0)}</td>
+                        <td style={tdR}>{stData.reduce((s,x)=>s+x.qty,0)}</td>
+                        <td colSpan={5} style={td}></td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              </>
             ):(
+              /* ── Multi-month matrix view ── */
               <div className="tbl-wrap">
                 <table>
-                  <thead><tr>{['Staff','Target ✎','Sale','Ach%','Backlog','Bills','Qty','AUPT','AVPT','LY Sale ✎','GOLY',''].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead>
+                  <thead>
+                    <tr>
+                      <th style={{...th,position:'sticky',left:0,background:'var(--bg1)',zIndex:2}}>Staff</th>
+                      {staffMonths.map(mk=>(
+                        <th key={mk} style={{...th,minWidth:110,textAlign:'right'}}>{monthLabel(mk)}</th>
+                      ))}
+                      <th style={{...th,minWidth:110,textAlign:'right',borderLeft:'2px solid var(--border)'}}>Total</th>
+                    </tr>
+                    <tr style={{fontSize:10,color:'var(--text2)'}}>
+                      <td style={{...td,position:'sticky',left:0,background:'var(--bg1)',zIndex:2,fontSize:10,color:'var(--text2)',fontStyle:'italic'}}>Sale / Bills / Qty</td>
+                      {staffMonths.map(mk=>(
+                        <td key={mk} style={{...tdR,fontSize:10,color:'var(--text2)',fontStyle:'italic'}}>₹ sale · bills · qty</td>
+                      ))}
+                      <td style={{...tdR,fontSize:10,color:'var(--text2)',fontStyle:'italic',borderLeft:'2px solid var(--border)'}}>₹ sale · bills · qty</td>
+                    </tr>
+                  </thead>
                   <tbody>
-                    {stData.map(s=>{
-                      const isEd=staffEditing===s.name;
-                      const ev=staffEditVals[s.name]||s.man;
+                    {allStaff.map(sp=>{
+                      const spTotal={gsv:0,bills:new Set<string>(),qty:0};
+                      for(const mk of staffMonths){const c=grid[sp]?.[mk];if(c){spTotal.gsv+=c.gsv;c.bills.forEach(b=>spTotal.bills.add(b));spTotal.qty+=c.qty;}}
                       return (
-                        <tr key={s.name} style={{background:isEd?'rgba(29,78,216,0.10)':undefined,outline:isEd?'2px solid var(--brand)':undefined,outlineOffset:'-1px'}}>
-                          <td style={{...td,fontWeight:600}}>{s.name}</td>
-                          {isEd?(<>
-                            <td style={td}><input type="number" style={inp} value={ev.target||''} onChange={e=>setStaffEditVals(p=>({...p,[s.name]:{...ev,target:+e.target.value}}))}/></td>
-                            <td style={tdR}>{fmtRs(s.gsv)}</td>
-                            <td style={tdR}>—</td><td style={tdR}>—</td>
-                            <td style={tdR}>{s.bills}</td><td style={tdR}>{s.qty}</td>
-                            <td style={tdR}>{s.aupt.toFixed(2)}</td><td style={tdR}>{fmtRs(s.avpt)}</td>
-                            <td style={td}><input type="number" style={inp} value={ev.lySale||''} onChange={e=>setStaffEditVals(p=>({...p,[s.name]:{...ev,lySale:+e.target.value}}))}/></td>
-                            <td style={tdR}>—</td>
-                            <td style={td}>
-                              <button type="button" onClick={()=>{saveStaffTargets({...staffTargets,[s.name]:staffEditVals[s.name]||s.man});setStaffEditing(null);}} className="btn btn-brand btn-sm" style={{fontSize:11,marginRight:4}}>Save</button>
-                              <button type="button" onClick={()=>setStaffEditing(null)} className="btn btn-ghost btn-sm" style={{fontSize:11}}>✕</button>
-                            </td>
-                          </>):(<>
-                            <td style={tdR}>{s.man.target?s.man.target.toLocaleString('en-IN'):<span style={{color:'var(--text2)'}}>—</span>}</td>
-                            <td style={tdR}>{fmtRs(s.gsv)}</td>
-                            <td style={{...tdR,color:s.achPct==null?'var(--text2)':s.achPct>=100?'var(--green)':s.achPct>=80?'#d97706':'var(--red)'}}>{s.achPct!=null?`${s.achPct.toFixed(0)}%`:'—'}</td>
-                            <td style={{...tdR,color:s.backlog==null?'var(--text2)':s.backlog>=0?'var(--green)':'var(--red)'}}>{s.backlog!=null?(s.backlog>=0?'+':'-')+fmtRs(Math.abs(s.backlog)):'—'}</td>
-                            <td style={tdR}>{s.bills}</td><td style={tdR}>{s.qty}</td>
-                            <td style={{...tdR,color:s.aupt>=4?'var(--green)':'var(--text1)'}}>{s.aupt.toFixed(2)}</td>
-                            <td style={tdR}>{fmtRs(s.avpt)}</td>
-                            <td style={tdR}>{s.man.lySale?fmtRs(s.man.lySale):<span style={{color:'var(--text2)'}}>—</span>}</td>
-                            <td style={{...tdR,color:s.goly==null?'var(--text2)':s.goly>=0?'var(--green)':'var(--red)'}}>{s.goly!=null?`${s.goly>=0?'+':''}${s.goly.toFixed(0)}%`:'—'}</td>
-                            <td style={td}><button type="button" onClick={(e)=>{e.stopPropagation();setStaffEditing(s.name);setStaffEditVals(p=>({...p,[s.name]:{...s.man}}));}} className="btn btn-ghost btn-sm" style={{fontSize:11,minWidth:44,color:'var(--brand)'}}>Edit</button></td>
-                          </>)}
+                        <tr key={sp}>
+                          <td style={{...td,fontWeight:600,position:'sticky',left:0,background:'var(--bg1)',zIndex:1}}>{sp}</td>
+                          {staffMonths.map(mk=>{
+                            const c=grid[sp]?.[mk];
+                            const hasData=c&&c.gsv>0;
+                            return (
+                              <td key={mk} style={{...tdR,background:hasData?'rgba(29,78,216,0.04)':undefined}}>
+                                {hasData?(
+                                  <>
+                                    <div style={{fontWeight:600,fontSize:12,color:'var(--text1)'}}>{fmtRs(c.gsv)}</div>
+                                    <div style={{fontSize:10,color:'var(--text2)',marginTop:1}}>{c.bills.size} bills · {c.qty} qty</div>
+                                  </>
+                                ):<span style={{color:'var(--text2)',fontSize:12}}>—</span>}
+                              </td>
+                            );
+                          })}
+                          <td style={{...tdR,borderLeft:'2px solid var(--border)',background:'rgba(29,78,216,0.07)'}}>
+                            <div style={{fontWeight:700,fontSize:12}}>{fmtRs(spTotal.gsv)}</div>
+                            <div style={{fontSize:10,color:'var(--text2)',marginTop:1}}>{spTotal.bills.size} bills · {spTotal.qty} qty</div>
+                          </td>
                         </tr>
                       );
                     })}
                   </tbody>
                   <tfoot>
                     <tr style={{background:'var(--bg2)',fontWeight:700}}>
-                      <td style={td}>Store Total</td>
-                      <td style={tdR}>{Object.values(staffTargets).some(v=>v.target)?Object.values(staffTargets).reduce((s,v)=>s+(v.target||0),0).toLocaleString('en-IN'):'—'}</td>
-                      <td style={tdR}>{fmtRs(stData.reduce((s,x)=>s+x.gsv,0))}</td>
-                      <td colSpan={2} style={td}></td>
-                      <td style={tdR}>{stData.reduce((s,x)=>s+x.bills,0)}</td>
-                      <td style={tdR}>{stData.reduce((s,x)=>s+x.qty,0)}</td>
-                      <td colSpan={5} style={td}></td>
+                      <td style={{...td,position:'sticky',left:0,background:'var(--bg2)',zIndex:1}}>Store Total</td>
+                      {staffMonths.map(mk=>(
+                        <td key={mk} style={{...tdR}}>
+                          <div style={{fontSize:12}}>{fmtRs(monthTotals[mk].gsv)}</div>
+                          <div style={{fontSize:10,color:'var(--text2)',fontWeight:400,marginTop:1}}>{monthTotals[mk].bills.size} bills · {monthTotals[mk].qty} qty</div>
+                        </td>
+                      ))}
+                      <td style={{...tdR,borderLeft:'2px solid var(--border)'}}>
+                        <div style={{fontSize:12}}>{fmtRs(allStaff.reduce((s,sp)=>s+Object.values(grid[sp]||{}).reduce((a,c)=>a+c.gsv,0),0))}</div>
+                      </td>
                     </tr>
                   </tfoot>
                 </table>
