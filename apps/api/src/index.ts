@@ -16,6 +16,7 @@ import dashboardRoutes from './routes/dashboard';
 import billingRoutes from './routes/billing';
 import imagesRoutes from './routes/images';
 import cashbookRoutes from './routes/cashbook';
+import retailRoutes from './routes/retail';
 import storeroomRoutes from './routes/storeroom';
 
 const app = express();
@@ -41,6 +42,7 @@ app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/billing', billingRoutes);
 app.use('/api/images', imagesRoutes);
 app.use('/api/cashbook', cashbookRoutes);
+app.use('/api/retail', retailRoutes);
 app.use('/api/storeroom', storeroomRoutes);
 
 // ── Health check ──────────────────────────────────────────────────────────────

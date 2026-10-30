@@ -179,9 +179,38 @@ export default function RetailMatrix() {
   const saveLosRows = (r: LosEntry[]) => { setLosRows(r); try { localStorage.setItem('rm_los',JSON.stringify(r)); } catch {} };
   const saveDsrManual = (d: Record<string,DsrManualEntry>) => { setDsrManual(d); try { localStorage.setItem('rm_dsr',JSON.stringify(d)); } catch {} };
   const saveDsrMonthlyTarget = (d: Record<string,number>) => { setDsrMonthlyTarget(d); try { localStorage.setItem('rm_dsr_mt',JSON.stringify(d)); } catch {} };
-  const saveCatTargets = (d: typeof catTargets) => { setCatTargets(d); try { localStorage.setItem('rm_cat',JSON.stringify(d)); } catch {} };
-  const saveStaffTargets = (d: typeof staffTargets) => { setStaffTargets(d); try { localStorage.setItem('rm_staff',JSON.stringify(d)); } catch {} };
+
+  // ── Persist targets to server (so they survive across devices/browsers) ──
+  const kvPut = (key: string, value: any) => {
+    fetch(`/api/retail/kv/${key}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({value}) }).catch(()=>{});
+  };
+  const saveCatTargets = (d: typeof catTargets) => {
+    setCatTargets(d);
+    try { localStorage.setItem('rm_cat',JSON.stringify(d)); } catch {}
+    kvPut('rm_cat', d);
+  };
+  const saveStaffTargets = (d: typeof staffTargets) => {
+    setStaffTargets(d);
+    try { localStorage.setItem('rm_staff',JSON.stringify(d)); } catch {}
+    kvPut('rm_staff', d);
+  };
   const saveCmpData = (d: Record<string,number>) => { setCmpData(d); try { localStorage.setItem('rm_cmp',JSON.stringify(d)); } catch {} };
+
+  // ── On mount: load persisted targets from server (overwrites stale localStorage) ──
+  React.useEffect(() => {
+    fetch('/api/retail/kv').then(r=>r.json()).then((res: any) => {
+      if (!res.success) return;
+      const d = res.data || {};
+      if (d.rm_cat && typeof d.rm_cat === 'object') {
+        setCatTargets(d.rm_cat);
+        try { localStorage.setItem('rm_cat', JSON.stringify(d.rm_cat)); } catch {}
+      }
+      if (d.rm_staff && typeof d.rm_staff === 'object') {
+        setStaffTargets(d.rm_staff);
+        try { localStorage.setItem('rm_staff', JSON.stringify(d.rm_staff)); } catch {}
+      }
+    }).catch(()=>{});
+  }, []);
 
   const TABS = ['🏆 Rankings', '🔍 Category', '💳 Memberships', '📅 Sales Reports', '⚠️ Less than 2 Qty Bills', '📆 Monthly Breakdown', '📊 DSR', '📋 Cat Wise', '👥 Staff Wise', '😞 Loss of Sale', '🎯 CMP Tracker'];
 

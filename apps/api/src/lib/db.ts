@@ -384,6 +384,15 @@ function initSchema() {
     CREATE INDEX IF NOT EXISTS CashbookEntry_storeId_date ON "CashbookEntry"(storeId, date);
   `);
 
+  // Migrate: RetailKV — persistent key-value store for retail matrix targets
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS "RetailKV" (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updatedAt TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+  `);
+
   // Seed if empty
   const count = (db.prepare('SELECT COUNT(*) as c FROM "Store"').get() as any).c;
   if (count === 0) {
