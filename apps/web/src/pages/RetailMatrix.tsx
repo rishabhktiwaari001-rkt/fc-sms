@@ -15,6 +15,7 @@ interface SaleRow {
   WeekLabel: string;
   DayName: string;
   isMembership: boolean;
+  ProductID: number;
 }
 
 interface StaffStat {
@@ -98,11 +99,12 @@ function processRows(raw: Record<string, string>[]): SaleRow[] {
     if (!date) return null;
     const day = date.getDate();
     const week = Math.ceil(day / 7);
+    const pid = parseInt(r['ProductID'] || r['ProductId'] || r['ArticleId'] || '0') || 0;
     const isMem = /membership/i.test(prod) || cat === 'GiftCertificate';
     const mk = monthKey(date);
     return {
       BillDate: date, MonthKey: mk, MonthLabel: monthLabel(mk),
-      SalesPerson: sp.trim(), GSV: gsv, Quantity: qty,
+      SalesPerson: sp.trim(), GSV: gsv, Quantity: qty, ProductID: pid,
       InvoiceNumber: inv, ProductName: prod, Category: cat, SubCategory: sub,
       Week: week, WeekLabel: `Week ${week}`, DayName: DAYS[date.getDay()],
       isMembership: isMem,
@@ -176,6 +178,22 @@ export default function RetailMatrix() {
   const [staffViewMode, setStaffViewMode] = useState<'single'|'multi'|'drill'>('single');
   const [staffDrillStaff, setStaffDrillStaff] = useState<string>('');
 
+  // ── Salary Sheet state ──
+  const [salaryBase, setSalaryBase] = useState<Record<string,number>>(() => { try { return JSON.parse(localStorage.getItem('rm_sal_base')||'{}'); } catch { return {}; } });
+  const [salaryConfig, setSalaryConfig] = useState<{wowRates:{[k:string]:number};cmpRates:{[k:string]:number};incentiveSlabs:{minPct:number;rate:number}[];workingDays:number}>(() => {
+    try { return JSON.parse(localStorage.getItem('rm_sal_cfg')||'null') || {
+      wowRates:{'5000':50,'10000':100,'20000':200},
+      cmpRates:{'8000000':20,'8000002':30,'8000001':50},
+      incentiveSlabs:[{minPct:100,rate:0.005},{minPct:110,rate:0.006},{minPct:120,rate:0.007},{minPct:130,rate:0.008},{minPct:140,rate:0.009},{minPct:150,rate:0.01}],
+      workingDays:26
+    }; } catch { return {wowRates:{'5000':50,'10000':100,'20000':200},cmpRates:{'8000000':20,'8000002':30,'8000001':50},incentiveSlabs:[{minPct:100,rate:0.005},{minPct:110,rate:0.006},{minPct:120,rate:0.007},{minPct:130,rate:0.008},{minPct:140,rate:0.009},{minPct:150,rate:0.01}],workingDays:26}; }
+  });
+  const [salaryMonthData, setSalaryMonthData] = useState<Record<string,Record<string,{advance:number;leaves:number}>>>(() => { try { return JSON.parse(localStorage.getItem('rm_sal_month')||'{}'); } catch { return {}; } });
+  const [salaryShowConfig, setSalaryShowConfig] = useState(false);
+  const [salaryBaseEditing, setSalaryBaseEditing] = useState(false);
+  const [salaryBaseVals, setSalaryBaseVals] = useState<Record<string,number>>({});
+  const [salaryCfgVals, setSalaryCfgVals] = useState<typeof salaryConfig|null>(null);
+
   const saveLosRows = (r: LosEntry[]) => { setLosRows(r); try { localStorage.setItem('rm_los',JSON.stringify(r)); } catch {} };
   const saveDsrManual = (d: Record<string,DsrManualEntry>) => { setDsrManual(d); try { localStorage.setItem('rm_dsr',JSON.stringify(d)); } catch {} };
   const saveDsrMonthlyTarget = (d: Record<string,number>) => { setDsrMonthlyTarget(d); try { localStorage.setItem('rm_dsr_mt',JSON.stringify(d)); } catch {} };
@@ -195,6 +213,9 @@ export default function RetailMatrix() {
     kvPut('rm_staff', d);
   };
   const saveCmpData = (d: Record<string,number>) => { setCmpData(d); try { localStorage.setItem('rm_cmp',JSON.stringify(d)); } catch {} };
+  const saveSalaryBase = (d: typeof salaryBase) => { setSalaryBase(d); try { localStorage.setItem('rm_sal_base',JSON.stringify(d)); } catch {} kvPut('rm_sal_base',d); };
+  const saveSalaryConfig = (d: typeof salaryConfig) => { setSalaryConfig(d); try { localStorage.setItem('rm_sal_cfg',JSON.stringify(d)); } catch {} kvPut('rm_sal_cfg',d); };
+  const saveSalaryMonthData = (d: typeof salaryMonthData) => { setSalaryMonthData(d); try { localStorage.setItem('rm_sal_month',JSON.stringify(d)); } catch {} kvPut('rm_sal_month',d); };
 
   // ── On mount: load persisted targets from server (overwrites stale localStorage) ──
   React.useEffect(() => {
@@ -209,10 +230,22 @@ export default function RetailMatrix() {
         setStaffTargets(d.rm_staff);
         try { localStorage.setItem('rm_staff', JSON.stringify(d.rm_staff)); } catch {}
       }
+      if (d.rm_sal_base && typeof d.rm_sal_base === 'object') {
+        setSalaryBase(d.rm_sal_base);
+        try { localStorage.setItem('rm_sal_base', JSON.stringify(d.rm_sal_base)); } catch {}
+      }
+      if (d.rm_sal_cfg && typeof d.rm_sal_cfg === 'object') {
+        setSalaryConfig(d.rm_sal_cfg as typeof salaryConfig);
+        try { localStorage.setItem('rm_sal_cfg', JSON.stringify(d.rm_sal_cfg)); } catch {}
+      }
+      if (d.rm_sal_month && typeof d.rm_sal_month === 'object') {
+        setSalaryMonthData(d.rm_sal_month);
+        try { localStorage.setItem('rm_sal_month', JSON.stringify(d.rm_sal_month)); } catch {}
+      }
     }).catch(()=>{});
   }, []);
 
-  const TABS = ['🏆 Rankings', '🔍 Category', '💳 Memberships', '📅 Sales Reports', '⚠️ Less than 2 Qty Bills', '📆 Monthly Breakdown', '📊 DSR', '📋 Cat Wise', '👥 Staff Wise', '😞 Loss of Sale', '🎯 CMP Tracker'];
+  const TABS = ['🏆 Rankings', '🔍 Category', '💳 Memberships', '📅 Sales Reports', '⚠️ Less than 2 Qty Bills', '📆 Monthly Breakdown', '📊 DSR', '📋 Cat Wise', '👥 Staff Wise', '😞 Loss of Sale', '🎯 CMP Tracker', '💰 Salary Sheet'];
 
   const handleFile = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -1592,6 +1625,291 @@ export default function RetailMatrix() {
                   <div style={{fontSize:11,color:'var(--text2)',fontWeight:600,marginBottom:4}}>{label}</div>
                   <div style={{fontSize:18,fontWeight:700,color}}>{value}</div>
                 </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
+
+
+      {/* ── Tab 11: Salary Sheet ── */}
+      {activeTab === 11 && (() => {
+        const selMk = selMonth === 'All'
+          ? (Array.from(new Set(rows.map(r=>r.MonthKey))).sort().slice(-1)[0] || '')
+          : selMonth;
+        const mRows = rows.filter(r => r.MonthKey === selMk);
+        const allSp = Array.from(new Set(rows.map(r=>r.SalesPerson).filter(Boolean))).sort() as string[];
+        const cfg = salaryCfgVals || salaryConfig;
+        const mData = salaryMonthData[selMk] || {};
+
+        // ── WOW Bill calculation (Clothes & Shoes only) ──
+        const invMap: Record<string, {sp:string; clothesGsv:number}> = {};
+        for (const r of mRows) {
+          if (!invMap[r.InvoiceNumber]) invMap[r.InvoiceNumber] = {sp: r.SalesPerson, clothesGsv: 0};
+          if (r.Category === 'Clothes & Shoes') invMap[r.InvoiceNumber].clothesGsv += r.GSV;
+        }
+        const wowCounts: Record<string, {t5:number;t10:number;t20:number}> = {};
+        for (const {sp, clothesGsv} of Object.values(invMap)) {
+          if (!wowCounts[sp]) wowCounts[sp] = {t5:0,t10:0,t20:0};
+          if (clothesGsv >= 20000) wowCounts[sp].t20++;
+          else if (clothesGsv >= 10000) wowCounts[sp].t10++;
+          else if (clothesGsv >= 5000) wowCounts[sp].t5++;
+        }
+        const wowBonus = (sp:string) => {
+          const w = wowCounts[sp]||{t5:0,t10:0,t20:0};
+          return w.t5*(cfg.wowRates['5000']||50) + w.t10*(cfg.wowRates['10000']||100) + w.t20*(cfg.wowRates['20000']||200);
+        };
+        const wowDetail = (sp:string) => {
+          const w = wowCounts[sp]||{t5:0,t10:0,t20:0};
+          const parts=[];
+          if(w.t5) parts.push(`${w.t5}×5k`);
+          if(w.t10) parts.push(`${w.t10}×10k`);
+          if(w.t20) parts.push(`${w.t20}×20k`);
+          return parts.join(' + ')||'—';
+        };
+
+        // ── CMP calculation ──
+        const cmpCounts: Record<string, {p299:number;p599:number;p999:number}> = {};
+        for (const r of mRows) {
+          if (![8000000,8000001,8000002].includes(r.ProductID)) continue;
+          if (!cmpCounts[r.SalesPerson]) cmpCounts[r.SalesPerson] = {p299:0,p599:0,p999:0};
+          if (r.ProductID === 8000000) cmpCounts[r.SalesPerson].p299 += r.Quantity;
+          else if (r.ProductID === 8000002) cmpCounts[r.SalesPerson].p599 += r.Quantity;
+          else if (r.ProductID === 8000001) cmpCounts[r.SalesPerson].p999 += r.Quantity;
+        }
+        const cmpBonus = (sp:string) => {
+          const cm = cmpCounts[sp]||{p299:0,p599:0,p999:0};
+          return cm.p299*(cfg.cmpRates['8000000']||20) + cm.p599*(cfg.cmpRates['8000002']||30) + cm.p999*(cfg.cmpRates['8000001']||50);
+        };
+        const cmpDetail = (sp:string) => {
+          const cm = cmpCounts[sp]||{p299:0,p599:0,p999:0};
+          const parts=[];
+          if(cm.p299) parts.push(`${cm.p299}×₹299`);
+          if(cm.p599) parts.push(`${cm.p599}×₹599`);
+          if(cm.p999) parts.push(`${cm.p999}×₹999`);
+          return parts.join(' + ')||'—';
+        };
+
+        // ── Target incentive ──
+        const incentiveBySp: Record<string,number> = {};
+        for (const sp of allSp) {
+          const sale = mRows.filter(r=>r.SalesPerson===sp).reduce((s,r)=>s+r.GSV,0);
+          const target = staffTargets[sp]?.target || 0;
+          if (!target || !sale) { incentiveBySp[sp]=0; continue; }
+          const achPct = sale/target*100;
+          const slabs = [...cfg.incentiveSlabs].sort((a,b)=>b.minPct-a.minPct);
+          const slab = slabs.find(s=>achPct>=s.minPct);
+          incentiveBySp[sp] = slab ? Math.round(sale*slab.rate) : 0;
+        }
+
+        // ── Per-staff row data ──
+        const spData = allSp.map(sp => {
+          const spRows = mRows.filter(r=>r.SalesPerson===sp);
+          const sale = spRows.reduce((s,r)=>s+r.GSV,0);
+          const target = staffTargets[sp]?.target||0;
+          const achPct = target?sale/target*100:null;
+          const base = salaryBase[sp]||0;
+          const incentive = incentiveBySp[sp]||0;
+          const wow = wowBonus(sp);
+          const cmp = cmpBonus(sp);
+          const md = mData[sp]||{advance:0,leaves:0};
+          const wd = cfg.workingDays||26;
+          const leaveDed = base&&wd ? Math.round((base/wd)*md.leaves) : 0;
+          const gross = base + incentive + wow + cmp;
+          const net = gross - leaveDed - (md.advance||0);
+          return {sp,sale,target,achPct,base,incentive,wow,cmp,advance:md.advance||0,leaves:md.leaves||0,leaveDed,gross,net};
+        });
+
+        const inp: React.CSSProperties = {padding:'3px 6px',fontSize:12,borderRadius:4,border:'1px solid var(--border)',background:'var(--bg2)',color:'var(--text1)'};
+        const thS: React.CSSProperties = {...th, fontSize:11, padding:'6px 8px'};
+        const tdS: React.CSSProperties = {...td, fontSize:12, padding:'5px 8px'};
+        const tdRS: React.CSSProperties = {...tdR, fontSize:12, padding:'5px 8px'};
+
+        return (
+          <div style={{padding:'0 0 32px'}}>
+            {/* Header */}
+            <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:16,flexWrap:'wrap'}}>
+              <span style={{fontWeight:700,fontSize:15}}>💰 Salary Sheet</span>
+              <span style={{fontSize:12,color:'var(--text2)',background:'var(--bg2)',padding:'3px 10px',borderRadius:20,fontWeight:600}}>
+                {selMk ? monthLabel(selMk) : 'No data'}
+              </span>
+              <button onClick={()=>{setSalaryShowConfig(v=>!v);setSalaryCfgVals(salaryConfig);}} className="btn btn-ghost btn-sm" style={{fontSize:11}}>
+                {salaryShowConfig?'▲ Hide Config':'⚙️ Config'}
+              </button>
+              <button onClick={()=>{setSalaryBaseEditing(v=>!v);setSalaryBaseVals({...salaryBase});}} className="btn btn-ghost btn-sm" style={{fontSize:11,marginLeft:4}}>
+                {salaryBaseEditing?'✕ Cancel':'✎ Base Salaries'}
+              </button>
+            </div>
+
+            {/* Config panel */}
+            {salaryShowConfig && salaryCfgVals && (
+              <div style={{background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:10,padding:16,marginBottom:16}}>
+                <div style={{display:'flex',gap:32,flexWrap:'wrap',alignItems:'flex-start'}}>
+                  {/* Working days */}
+                  <div>
+                    <div style={{fontSize:11,fontWeight:700,color:'var(--text2)',marginBottom:6}}>WORKING DAYS THIS MONTH</div>
+                    <input type="number" style={{...inp,width:70}} value={salaryCfgVals.workingDays}
+                      onChange={e=>setSalaryCfgVals(v=>v?{...v,workingDays:+e.target.value}:v)}/>
+                  </div>
+                  {/* WOW rates */}
+                  <div>
+                    <div style={{fontSize:11,fontWeight:700,color:'var(--text2)',marginBottom:6}}>WOW BILL BONUS (₹)</div>
+                    {(['5000','10000','20000'] as const).map(k=>(
+                      <div key={k} style={{display:'flex',alignItems:'center',gap:6,marginBottom:4}}>
+                        <span style={{fontSize:11,width:60}}>≥₹{(+k).toLocaleString('en-IN')}</span>
+                        <input type="number" style={{...inp,width:60}} value={salaryCfgVals.wowRates[k]||''}
+                          onChange={e=>setSalaryCfgVals(v=>v?{...v,wowRates:{...v.wowRates,[k]:+e.target.value}}:v)}/>
+                      </div>
+                    ))}
+                  </div>
+                  {/* CMP rates */}
+                  <div>
+                    <div style={{fontSize:11,fontWeight:700,color:'var(--text2)',marginBottom:6}}>CMP BONUS (₹ per unit)</div>
+                    {[['8000000','₹299 (3M)'],['8000002','₹599 (6M)'],['8000001','₹999 (12M)']] .map(([k,label])=>(
+                      <div key={k} style={{display:'flex',alignItems:'center',gap:6,marginBottom:4}}>
+                        <span style={{fontSize:11,width:80}}>{label}</span>
+                        <input type="number" style={{...inp,width:60}} value={salaryCfgVals.cmpRates[k]||''}
+                          onChange={e=>setSalaryCfgVals(v=>v?{...v,cmpRates:{...v.cmpRates,[k]:+e.target.value}}:v)}/>
+                      </div>
+                    ))}
+                  </div>
+                  {/* Incentive slabs */}
+                  <div>
+                    <div style={{fontSize:11,fontWeight:700,color:'var(--text2)',marginBottom:6}}>TARGET INCENTIVE SLABS</div>
+                    {salaryCfgVals.incentiveSlabs.map((s,i)=>(
+                      <div key={i} style={{display:'flex',alignItems:'center',gap:6,marginBottom:4}}>
+                        <span style={{fontSize:11,width:50}}>≥{s.minPct}%</span>
+                        <input type="number" step="0.001" style={{...inp,width:70}} value={(s.rate*100).toFixed(3)}
+                          onChange={e=>setSalaryCfgVals(v=>{ if(!v) return v; const sl=[...v.incentiveSlabs]; sl[i]={...sl[i],rate:+e.target.value/100}; return {...v,incentiveSlabs:sl}; })}/>
+                        <span style={{fontSize:11,color:'var(--text2)'}}>% of sale</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div style={{marginTop:12,display:'flex',gap:8}}>
+                  <button className="btn btn-brand btn-sm" onClick={()=>{ if(salaryCfgVals){saveSalaryConfig(salaryCfgVals);setSalaryShowConfig(false);setSalaryCfgVals(null);} }}>Save Config</button>
+                  <button className="btn btn-ghost btn-sm" onClick={()=>{setSalaryShowConfig(false);setSalaryCfgVals(null);}}>Cancel</button>
+                </div>
+              </div>
+            )}
+
+            {/* Base salary editor */}
+            {salaryBaseEditing && (
+              <div style={{background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:10,padding:16,marginBottom:16}}>
+                <div style={{fontSize:11,fontWeight:700,color:'var(--text2)',marginBottom:10}}>BASE SALARY PER STAFF (saves permanently)</div>
+                <div style={{display:'flex',gap:12,flexWrap:'wrap'}}>
+                  {allSp.map(sp=>(
+                    <div key={sp} style={{display:'flex',flexDirection:'column',gap:4}}>
+                      <span style={{fontSize:11,fontWeight:600}}>{sp}</span>
+                      <input type="number" style={{...inp,width:90}} placeholder="Base salary"
+                        value={salaryBaseVals[sp]||''}
+                        onChange={e=>setSalaryBaseVals(v=>({...v,[sp]:+e.target.value}))}/>
+                    </div>
+                  ))}
+                </div>
+                <div style={{marginTop:12,display:'flex',gap:8}}>
+                  <button className="btn btn-brand btn-sm" onClick={()=>{ saveSalaryBase(salaryBaseVals); setSalaryBaseEditing(false); }}>Save Base Salaries</button>
+                  <button className="btn btn-ghost btn-sm" onClick={()=>setSalaryBaseEditing(false)}>Cancel</button>
+                </div>
+              </div>
+            )}
+
+            {!rows.length ? (
+              <div style={{padding:32,textAlign:'center',color:'var(--text2)',fontSize:13}}>Upload Article Sale Report CSV to generate salary sheet.</div>
+            ) : (
+              <div className="tbl-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      {['Staff','Base Sal','Target','Sale','Ach%','Incentive','WOW','CMP','Leaves','Leave Ded','Advance','Gross','NET'].map(h=>(
+                        <th key={h} style={h==='Staff'?thS:{...thS,textAlign:'right'}}>{h}</th>
+                      ))}
+                    </tr>
+                    <tr style={{fontSize:10,color:'var(--text2)'}}>
+                      <td style={tdS}></td>
+                      <td style={{...tdRS,fontSize:10,color:'var(--text2)'}}>✎ once</td>
+                      <td style={{...tdRS,fontSize:10,color:'var(--text2)'}}>from Staff Wise</td>
+                      <td style={{...tdRS,fontSize:10,color:'var(--text2)'}}>from CSV</td>
+                      <td style={{...tdRS,fontSize:10,color:'var(--text2)'}}>auto</td>
+                      <td style={{...tdRS,fontSize:10,color:'var(--text2)'}}>auto</td>
+                      <td style={{...tdRS,fontSize:10,color:'var(--text2)'}}>C&S only</td>
+                      <td style={{...tdRS,fontSize:10,color:'var(--text2)'}}>auto</td>
+                      <td style={{...tdRS,fontSize:10,color:'var(--text2)'}}>✎ monthly</td>
+                      <td style={{...tdRS,fontSize:10,color:'var(--text2)'}}>auto</td>
+                      <td style={{...tdRS,fontSize:10,color:'var(--text2)'}}>✎ monthly</td>
+                      <td style={{...tdRS,fontSize:10,color:'var(--text2)'}}>auto</td>
+                      <td style={{...tdRS,fontSize:10,color:'var(--text2)',fontWeight:700}}>auto</td>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {spData.map(d=>(
+                      <tr key={d.sp}>
+                        <td style={{...tdS,fontWeight:600}}>{d.sp}</td>
+                        <td style={tdRS}>{d.base ? fmtRs(d.base) : <span style={{color:'var(--text2)'}}>—</span>}</td>
+                        <td style={tdRS}>{d.target ? d.target.toLocaleString('en-IN') : <span style={{color:'var(--text2)'}}>—</span>}</td>
+                        <td style={tdRS}>{fmtRs(d.sale)}</td>
+                        <td style={{...tdRS,color:d.achPct==null?'var(--text2)':d.achPct>=100?'var(--green)':d.achPct>=80?'#f59e0b':'var(--red)',fontWeight:600}}>
+                          {d.achPct!=null?`${d.achPct.toFixed(1)}%`:'—'}
+                        </td>
+                        <td style={{...tdRS,color:d.incentive>0?'var(--green)':'var(--text2)'}}>
+                          {d.incentive>0?fmtRs(d.incentive):'—'}
+                        </td>
+                        <td style={tdRS} title={wowDetail(d.sp)}>{d.wow?fmtRs(d.wow):<span style={{color:'var(--text2)'}}>—</span>}</td>
+                        <td style={tdRS} title={cmpDetail(d.sp)}>{d.cmp?fmtRs(d.cmp):<span style={{color:'var(--text2)'}}>—</span>}</td>
+                        <td style={tdRS}>
+                          <input type="number" style={{...inp,width:50,textAlign:'right'}} min={0}
+                            value={mData[d.sp]?.leaves||''}
+                            placeholder="0"
+                            onChange={e=>{
+                              const nd={...salaryMonthData,[selMk]:{...mData,[d.sp]:{...(mData[d.sp]||{advance:0,leaves:0}),leaves:+e.target.value}}};
+                              saveSalaryMonthData(nd);
+                            }}/>
+                        </td>
+                        <td style={{...tdRS,color:'var(--red)'}}>{d.leaveDed>0?`-${fmtRs(d.leaveDed)}`:'—'}</td>
+                        <td style={tdRS}>
+                          <input type="number" style={{...inp,width:70,textAlign:'right'}} min={0}
+                            value={mData[d.sp]?.advance||''}
+                            placeholder="0"
+                            onChange={e=>{
+                              const nd={...salaryMonthData,[selMk]:{...mData,[d.sp]:{...(mData[d.sp]||{advance:0,leaves:0}),advance:+e.target.value}}};
+                              saveSalaryMonthData(nd);
+                            }}/>
+                        </td>
+                        <td style={{...tdRS,fontWeight:600}}>{fmtRs(d.gross)}</td>
+                        <td style={{...tdRS,fontWeight:700,fontSize:13,color:d.net>0?'var(--green)':'var(--red)',background:'rgba(29,78,216,0.05)'}}>
+                          {d.base?fmtRs(d.net):<span style={{color:'var(--text2)',fontWeight:400,fontSize:11}}>Set base salary</span>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr style={{background:'var(--bg2)',fontWeight:700}}>
+                      <td style={tdS}>Store Total</td>
+                      <td style={tdRS}>{spData.some(d=>d.base)?fmtRs(spData.reduce((s,d)=>s+d.base,0)):'—'}</td>
+                      <td style={tdRS}></td>
+                      <td style={tdRS}>{fmtRs(spData.reduce((s,d)=>s+d.sale,0))}</td>
+                      <td style={tdRS}></td>
+                      <td style={tdRS}>{fmtRs(spData.reduce((s,d)=>s+d.incentive,0))}</td>
+                      <td style={tdRS}>{fmtRs(spData.reduce((s,d)=>s+d.wow,0))}</td>
+                      <td style={tdRS}>{fmtRs(spData.reduce((s,d)=>s+d.cmp,0))}</td>
+                      <td style={tdRS}>{spData.reduce((s,d)=>s+d.leaves,0)}</td>
+                      <td style={{...tdRS,color:'var(--red)'}}>{spData.some(d=>d.leaveDed)?`-${fmtRs(spData.reduce((s,d)=>s+d.leaveDed,0))}`:'—'}</td>
+                      <td style={tdRS}>{spData.some(d=>d.advance)?fmtRs(spData.reduce((s,d)=>s+d.advance,0)):'—'}</td>
+                      <td style={tdRS}>{fmtRs(spData.reduce((s,d)=>s+d.gross,0))}</td>
+                      <td style={{...tdRS,background:'rgba(29,78,216,0.08)'}}>{fmtRs(spData.reduce((s,d)=>s+d.net,0))}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            )}
+
+            {/* Incentive reference */}
+            <div style={{marginTop:12,display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
+              <span style={{fontSize:11,color:'var(--text2)',fontWeight:600}}>Incentive slabs:</span>
+              {salaryConfig.incentiveSlabs.map(s=>(
+                <span key={s.minPct} style={{fontSize:11,background:'var(--bg2)',padding:'2px 8px',borderRadius:12,border:'1px solid var(--border)'}}>
+                  ≥{s.minPct}% → {(s.rate*100).toFixed(1)}% of sale
+                </span>
               ))}
             </div>
           </div>
