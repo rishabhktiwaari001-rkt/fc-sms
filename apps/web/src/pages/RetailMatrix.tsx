@@ -1808,9 +1808,16 @@ export default function RetailMatrix() {
           // Days: use manually-entered value if set, else auto = workingDays - leaves
           const autodays = Math.max(0, wd - (md.leaves||0));
           const daysWorked = (md.daysWorked != null && md.daysWorked > 0) ? md.daysWorked : autodays;
-          // New Joiner: use 30-day calendar month denominator; Regular: use net working days (26)
+          // Salary calculation:
+          // NJ (New Joiner): base÷30×days (calendar proration)
+          // Regular, days ≤ wd: base÷26×days (leave deduction)
+          // Regular, days > wd: full base + extra days at base÷30 (extra work bonus)
           const denominator = isNJ ? 30 : wd;
-          const basePay = base&&denominator ? Math.round((base/denominator)*daysWorked) : base;
+          let basePay: number;
+          if (!base) { basePay = 0; }
+          else if (isNJ) { basePay = Math.round((base/30)*daysWorked); }
+          else if (daysWorked <= wd) { basePay = Math.round((base/wd)*daysWorked); }
+          else { basePay = Math.round(base + (base/30)*(daysWorked-wd)); }
           const gross = basePay + incentive + wow + cmp;
           const net = gross - (md.advance||0);
           return {sp,sale,target,achPct,base,incentive,wow,cmp,advance:md.advance||0,leaves:md.leaves||0,daysWorked,autodays,wd,denominator,isNJ,basePay,gross,net};
