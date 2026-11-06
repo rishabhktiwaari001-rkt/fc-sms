@@ -191,6 +191,7 @@ export default function RetailMatrix() {
   const [salaryMonthData, setSalaryMonthData] = useState<Record<string,Record<string,{advance:number;leaves:number}>>>(() => { try { return JSON.parse(localStorage.getItem('rm_sal_month')||'{}'); } catch { return {}; } });
   const [salaryShowConfig, setSalaryShowConfig] = useState(false);
   const [salaryBaseEditing, setSalaryBaseEditing] = useState(false);
+  const [wowDrillSp, setWowDrillSp] = useState<string|null>(null);
   const [salaryBaseVals, setSalaryBaseVals] = useState<Record<string,number>>({});
   const [salaryCfgVals, setSalaryCfgVals] = useState<typeof salaryConfig|null>(null);
 
@@ -1642,24 +1643,45 @@ export default function RetailMatrix() {
         const cfg = salaryCfgVals || salaryConfig;
         const mData = salaryMonthData[selMk] || {};
 
-        // ── WOW Bill calculation (Clothes & Shoes only) ──
-        const invMap: Record<string, {sp:string; clothesGsv:number}> = {};
+        // ── Manager detection: RUKHSAR KHAN = store manager ──
+        const MANAGER_SP = 'RUKHSAR KHAN';
+        const isManager = (sp:string) => sp.trim().toUpperCase() === MANAGER_SP;
+
+        // ── WOW Bill calculation (Clothes & Shoes only; not for manager) ──
+        // invMap: per invoice → { sp, clothesGsv, articles[] }
+        const invMap: Record<string, {sp:string; clothesGsv:number; articles:{name:string;gsv:number;qty:number}[]}> = {};
         for (const r of mRows) {
-          if (!invMap[r.InvoiceNumber]) invMap[r.InvoiceNumber] = {sp: r.SalesPerson, clothesGsv: 0};
-          if (r.Category === 'Clothes & Shoes') invMap[r.InvoiceNumber].clothesGsv += r.GSV;
+          if (!invMap[r.InvoiceNumber]) invMap[r.InvoiceNumber] = {sp: r.SalesPerson, clothesGsv: 0, articles:[]};
+          if (r.Category === 'Clothes & Shoes') {
+            invMap[r.InvoiceNumber].clothesGsv += r.GSV;
+            invMap[r.InvoiceNumber].articles.push({name: r.ProductName||r.SubCategory||'Item', gsv: r.GSV, qty: r.Quantity});
+          }
+        }
+        // wowBills: per staff → array of qualifying bill detail objects
+        const wowBills: Record<string, {inv:string; clothesGsv:number; tier:5000|10000|20000; bonus:number; articles:{name:string;gsv:number;qty:number}[]}[]> = {};
+        for (const [inv, {sp, clothesGsv, articles}] of Object.entries(invMap)) {
+          if (isManager(sp)) continue; // manager excluded from WOW
+          if (clothesGsv < 5000) continue;
+          const tier = clothesGsv >= 20000 ? 20000 : clothesGsv >= 10000 ? 10000 : 5000;
+          const bonus = tier === 20000 ? (cfg.wowRates['20000']||200) : tier === 10000 ? (cfg.wowRates['10000']||100) : (cfg.wowRates['5000']||50);
+          if (!wowBills[sp]) wowBills[sp] = [];
+          wowBills[sp].push({inv, clothesGsv, tier: tier as 5000|10000|20000, bonus, articles});
         }
         const wowCounts: Record<string, {t5:number;t10:number;t20:number}> = {};
-        for (const {sp, clothesGsv} of Object.values(invMap)) {
-          if (!wowCounts[sp]) wowCounts[sp] = {t5:0,t10:0,t20:0};
-          if (clothesGsv >= 20000) wowCounts[sp].t20++;
-          else if (clothesGsv >= 10000) wowCounts[sp].t10++;
-          else if (clothesGsv >= 5000) wowCounts[sp].t5++;
+        for (const [sp, bills] of Object.entries(wowBills)) {
+          wowCounts[sp] = {t5:0,t10:0,t20:0};
+          for (const b of bills) {
+            if(b.tier===20000) wowCounts[sp].t20++;
+            else if(b.tier===10000) wowCounts[sp].t10++;
+            else wowCounts[sp].t5++;
+          }
         }
         const wowBonus = (sp:string) => {
-          const w = wowCounts[sp]||{t5:0,t10:0,t20:0};
-          return w.t5*(cfg.wowRates['5000']||50) + w.t10*(cfg.wowRates['10000']||100) + w.t20*(cfg.wowRates['20000']||200);
+          if (isManager(sp)) return 0;
+          return (wowBills[sp]||[]).reduce((s,b)=>s+b.bonus,0);
         };
         const wowDetail = (sp:string) => {
+          if (isManager(sp)) return 'N/A (Manager)';
           const w = wowCounts[sp]||{t5:0,t10:0,t20:0};
           const parts=[];
           if(w.t5) parts.push(`${w.t5}×5k`);
@@ -1691,15 +1713,31 @@ export default function RetailMatrix() {
         };
 
         // ── Target incentive ──
+        // Store-level totals for manager incentive calculation
+        const storeTotalSale = mRows.reduce((s,r)=>s+r.GSV,0);
+        const storeTotalTarget = allSp.reduce((s,sp)=>s+(staffTargets[sp]?.target||0),0);
+        const storeAchPct = storeTotalTarget ? storeTotalSale/storeTotalTarget*100 : 0;
+
         const incentiveBySp: Record<string,number> = {};
         for (const sp of allSp) {
-          const sale = mRows.filter(r=>r.SalesPerson===sp).reduce((s,r)=>s+r.GSV,0);
-          const target = staffTargets[sp]?.target || 0;
-          if (!target || !sale) { incentiveBySp[sp]=0; continue; }
-          const achPct = sale/target*100;
           const slabs = [...cfg.incentiveSlabs].sort((a,b)=>b.minPct-a.minPct);
-          const slab = slabs.find(s=>achPct>=s.minPct);
-          incentiveBySp[sp] = slab ? Math.round(sale*slab.rate) : 0;
+          if (isManager(sp)) {
+            // Manager gets incentive only when STORE hits ≥100% — based on her own sale
+            const manSale = mRows.filter(r=>r.SalesPerson===sp).reduce((s,r)=>s+r.GSV,0);
+            if (storeAchPct >= 100) {
+              const slab = slabs.find(s=>storeAchPct>=s.minPct);
+              incentiveBySp[sp] = slab ? Math.round(manSale*slab.rate) : 0;
+            } else {
+              incentiveBySp[sp] = 0;
+            }
+          } else {
+            const sale = mRows.filter(r=>r.SalesPerson===sp).reduce((s,r)=>s+r.GSV,0);
+            const target = staffTargets[sp]?.target || 0;
+            if (!target || !sale) { incentiveBySp[sp]=0; continue; }
+            const achPct = sale/target*100;
+            const slab = slabs.find(s=>achPct>=s.minPct);
+            incentiveBySp[sp] = slab ? Math.round(sale*slab.rate) : 0;
+          }
         }
 
         // ── Per-staff row data ──
@@ -1854,7 +1892,16 @@ export default function RetailMatrix() {
                         <td style={{...tdRS,color:d.incentive>0?'var(--green)':'var(--text2)'}}>
                           {d.incentive>0?fmtRs(d.incentive):'—'}
                         </td>
-                        <td style={tdRS} title={wowDetail(d.sp)}>{d.wow?fmtRs(d.wow):<span style={{color:'var(--text2)'}}>—</span>}</td>
+                        <td style={{...tdRS,cursor:d.wow&&!isManager(d.sp)?'pointer':'default'}}
+                          onClick={()=>{ if(d.wow&&!isManager(d.sp)) setWowDrillSp(d.sp); }}
+                          title={isManager(d.sp)?'WOW Bill not applicable for manager':wowDetail(d.sp)}>
+                          {isManager(d.sp)
+                            ? <span style={{color:'var(--text2)',fontSize:10}}>N/A</span>
+                            : d.wow
+                              ? <span style={{color:'var(--green)',textDecoration:'underline dotted',fontWeight:600}}>{fmtRs(d.wow)} 🔍</span>
+                              : <span style={{color:'var(--text2)'}}>—</span>
+                          }
+                        </td>
                         <td style={tdRS} title={cmpDetail(d.sp)}>{d.cmp?fmtRs(d.cmp):<span style={{color:'var(--text2)'}}>—</span>}</td>
                         <td style={tdRS}>
                           <input type="number" style={{...inp,width:50,textAlign:'right'}} min={0}
@@ -1900,6 +1947,69 @@ export default function RetailMatrix() {
                     </tr>
                   </tfoot>
                 </table>
+              </div>
+            )}
+
+            {/* WOW Bill Drill-down Modal */}
+            {wowDrillSp && wowBills[wowDrillSp] && (
+              <div style={{position:'fixed',top:0,left:0,right:0,bottom:0,background:'rgba(0,0,0,0.55)',zIndex:999,display:'flex',alignItems:'center',justifyContent:'center'}}
+                onClick={()=>setWowDrillSp(null)}>
+                <div style={{background:'var(--bg1)',border:'1px solid var(--border)',borderRadius:14,padding:24,maxWidth:700,width:'95%',maxHeight:'80vh',overflowY:'auto',boxShadow:'0 20px 60px rgba(0,0,0,0.4)'}}
+                  onClick={e=>e.stopPropagation()}>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
+                    <div>
+                      <span style={{fontWeight:700,fontSize:15}}>🏆 WOW Bills — {wowDrillSp}</span>
+                      <span style={{fontSize:12,color:'var(--text2)',marginLeft:10}}>{monthLabel(selMk)}</span>
+                    </div>
+                    <button className="btn btn-ghost btn-sm" onClick={()=>setWowDrillSp(null)}>✕ Close</button>
+                  </div>
+                  <div style={{fontSize:11,color:'var(--text2)',marginBottom:12}}>
+                    Only <strong>Clothes &amp; Shoes</strong> category items count toward WOW bill value.
+                    Each bill lands in one highest tier.
+                  </div>
+                  {wowBills[wowDrillSp].map((bill,bi)=>(
+                    <div key={bi} style={{border:'1px solid var(--border)',borderRadius:8,padding:12,marginBottom:10,background:'var(--bg2)'}}>
+                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
+                        <div>
+                          <span style={{fontWeight:700,fontSize:13}}>Bill #{bill.inv}</span>
+                          <span style={{marginLeft:12,fontSize:11,background:bill.tier===20000?'#1d4ed8':bill.tier===10000?'#7c3aed':'#0891b2',color:'#fff',padding:'2px 8px',borderRadius:12,fontWeight:600}}>
+                            {bill.tier===20000?'₹20,000+':bill.tier===10000?'₹10,000+':'₹5,000+'} tier
+                          </span>
+                        </div>
+                        <div style={{textAlign:'right'}}>
+                          <div style={{fontSize:11,color:'var(--text2)'}}>C&S Total</div>
+                          <div style={{fontWeight:700,fontSize:14}}>{fmtRs(bill.clothesGsv)}</div>
+                        </div>
+                        <div style={{textAlign:'right'}}>
+                          <div style={{fontSize:11,color:'var(--text2)'}}>Bonus Earned</div>
+                          <div style={{fontWeight:700,fontSize:14,color:'var(--green)'}}>+{fmtRs(bill.bonus)}</div>
+                        </div>
+                      </div>
+                      <table style={{width:'100%',fontSize:12,borderCollapse:'collapse'}}>
+                        <thead>
+                          <tr style={{borderBottom:'1px solid var(--border)'}}>
+                            <th style={{textAlign:'left',padding:'4px 6px',color:'var(--text2)',fontWeight:600,fontSize:11}}>Article / Product</th>
+                            <th style={{textAlign:'right',padding:'4px 6px',color:'var(--text2)',fontWeight:600,fontSize:11}}>Qty</th>
+                            <th style={{textAlign:'right',padding:'4px 6px',color:'var(--text2)',fontWeight:600,fontSize:11}}>GSV</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {bill.articles.map((a,ai)=>(
+                            <tr key={ai} style={{borderBottom:'1px solid var(--border)'}}>
+                              <td style={{padding:'4px 6px'}}>{a.name}</td>
+                              <td style={{padding:'4px 6px',textAlign:'right'}}>{a.qty}</td>
+                              <td style={{padding:'4px 6px',textAlign:'right',fontWeight:600}}>{fmtRs(a.gsv)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ))}
+                  <div style={{marginTop:12,padding:'10px 14px',background:'rgba(29,78,216,0.08)',borderRadius:8,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                    <span style={{fontWeight:700,fontSize:13}}>Total WOW Bonus for {wowDrillSp}</span>
+                    <span style={{fontWeight:700,fontSize:16,color:'var(--green)'}}>{fmtRs(wowBills[wowDrillSp].reduce((s,b)=>s+b.bonus,0))}</span>
+                  </div>
+                </div>
               </div>
             )}
 
