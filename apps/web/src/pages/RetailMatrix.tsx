@@ -237,8 +237,9 @@ export default function RetailMatrix() {
         try { localStorage.setItem('rm_sal_base', JSON.stringify(d.rm_sal_base)); } catch {}
       }
       if (d.rm_sal_cfg && typeof d.rm_sal_cfg === 'object') {
-        setSalaryConfig(d.rm_sal_cfg as typeof salaryConfig);
-        try { localStorage.setItem('rm_sal_cfg', JSON.stringify(d.rm_sal_cfg)); } catch {}
+        const sc=d.rm_sal_cfg as any; if(sc.weekOffs==null) sc.weekOffs=4;
+        setSalaryConfig(sc as typeof salaryConfig);
+        try { localStorage.setItem('rm_sal_cfg', JSON.stringify(sc)); } catch {}
       }
       if (d.rm_sal_month && typeof d.rm_sal_month === 'object') {
         setSalaryMonthData(d.rm_sal_month);
