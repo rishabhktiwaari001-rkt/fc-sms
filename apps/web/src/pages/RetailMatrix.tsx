@@ -197,8 +197,8 @@ export default function RetailMatrix() {
   const [salaryCfgVals, setSalaryCfgVals] = useState<typeof salaryConfig|null>(null);
 
   const saveLosRows = (r: LosEntry[]) => { setLosRows(r); try { localStorage.setItem('rm_los',JSON.stringify(r)); } catch {} };
-  const saveDsrManual = (d: Record<string,DsrManualEntry>) => { setDsrManual(d); try { localStorage.setItem('rm_dsr',JSON.stringify(d)); } catch {} };
-  const saveDsrMonthlyTarget = (d: Record<string,number>) => { setDsrMonthlyTarget(d); try { localStorage.setItem('rm_dsr_mt',JSON.stringify(d)); } catch {} };
+  const saveDsrManual = (d: Record<string,DsrManualEntry>) => { setDsrManual(d); try { localStorage.setItem('rm_dsr',JSON.stringify(d)); } catch {} kvPut('rm_dsr',d); };
+  const saveDsrMonthlyTarget = (d: Record<string,number>) => { setDsrMonthlyTarget(d); try { localStorage.setItem('rm_dsr_mt',JSON.stringify(d)); } catch {} kvPut('rm_dsr_mt',d); };
 
   // ── Persist targets to server (so they survive across devices/browsers) ──
   const kvPut = (key: string, value: any) => {
@@ -243,6 +243,14 @@ export default function RetailMatrix() {
       if (d.rm_sal_month && typeof d.rm_sal_month === 'object') {
         setSalaryMonthData(d.rm_sal_month);
         try { localStorage.setItem('rm_sal_month', JSON.stringify(d.rm_sal_month)); } catch {}
+      }
+      if (d.rm_dsr && typeof d.rm_dsr === 'object') {
+        setDsrManual(d.rm_dsr);
+        try { localStorage.setItem('rm_dsr', JSON.stringify(d.rm_dsr)); } catch {}
+      }
+      if (d.rm_dsr_mt && typeof d.rm_dsr_mt === 'object') {
+        setDsrMonthlyTarget(d.rm_dsr_mt);
+        try { localStorage.setItem('rm_dsr_mt', JSON.stringify(d.rm_dsr_mt)); } catch {}
       }
     }).catch(()=>{});
   }, []);
@@ -962,6 +970,48 @@ export default function RetailMatrix() {
                         <div style={{fontSize:15,fontWeight:700,color}}>{value}</div>
                       </div>
                     ))}
+                  </div>
+                )}
+                {dsrDays.length > 0 && (
+                  <div style={{display:'flex',justifyContent:'flex-end',marginBottom:8}}>
+                    <button className="btn btn-ghost btn-sm" style={{fontSize:11,color:'var(--green)',border:'1px solid var(--green)'}}
+                      onClick={()=>{
+                        const headers=['Date','Day','Target','Sale','%Ach','Walking','Bills','Qty','Con%','AUPT','AVPT','LY Sale','GOLY%','Scrap','CMP'];
+                        const dataRows=dsrDays.map(d=>{
+                          const m=dsrManual[d.dateKey]||{} as DsrManualEntry;
+                          const t=dayTargets[d.dateKey]||0;
+                          const pct=t&&d.sale?+(d.sale/t*100).toFixed(0):null;
+                          const walking=m.walking||0, lySale=m.lySale||0;
+                          const con=walking?+(d.bills/walking*100).toFixed(0):null;
+                          const aupt=d.bills?+(d.qty/d.bills).toFixed(2):null;
+                          const avpt=d.bills?+(d.sale/d.bills).toFixed(0):null;
+                          const goly=lySale?+(((d.sale/lySale)-1)*100).toFixed(0):null;
+                          return [
+                            d.date.toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}),
+                            d.day, t||'', d.sale||'', pct!=null?pct+'%':'',
+                            walking||'', d.bills||'', d.qty||'',
+                            con!=null?con+'%':'', aupt||'', avpt||'',
+                            lySale||'', goly!=null?goly+'%':'',
+                            m.scrap||'', m.cmp||''
+                          ];
+                        });
+                        const mtdRow=['MTD','',
+                          monthlyTarget||'', mtdSale||'',
+                          monthlyTarget?+(mtdSale/monthlyTarget*100).toFixed(0)+'%':'',
+                          '','',mtdQty||'','','',
+                          mtdBills?+(mtdSale/mtdBills).toFixed(0):'',
+                          '','','',
+                          dsrDays.reduce((s,d)=>s+(dsrManual[d.dateKey]?.scrap||0),0)||'',
+                          dsrDays.reduce((s,d)=>s+(dsrManual[d.dateKey]?.cmp||0),0)||''
+                        ];
+                        const ws=XLSX.utils.aoa_to_sheet([[`DSR — ${activeLabel}`],[],headers,...dataRows,[],mtdRow]);
+                        ws['!cols']=[14,6,10,10,7,9,7,7,7,7,10,10,8,7,7].map(w=>({wch:w}));
+                        const wb=XLSX.utils.book_new();
+                        XLSX.utils.book_append_sheet(wb,ws,(activeLabel||'DSR').replace(/[:\/?*[\]]/g,'').substring(0,31));
+                        XLSX.writeFile(wb,`DSR_${monthKey}.xlsx`);
+                      }}>
+                      ⬇ Download Excel
+                    </button>
                   </div>
                 )}
                 <div className="tbl-wrap">
