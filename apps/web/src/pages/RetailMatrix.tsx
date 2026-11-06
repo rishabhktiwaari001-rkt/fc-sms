@@ -189,7 +189,7 @@ export default function RetailMatrix() {
       workingDays:26
     }; } catch { return {wowRates:{'5000':50,'10000':100,'20000':200},cmpRates:{'8000000':20,'8000002':30,'8000001':50},incentiveSlabs:[{minPct:100,rate:0.005},{minPct:110,rate:0.006},{minPct:120,rate:0.007},{minPct:130,rate:0.008},{minPct:140,rate:0.009},{minPct:150,rate:0.01}],workingDays:26}; }
   });
-  const [salaryMonthData, setSalaryMonthData] = useState<Record<string,Record<string,{advance:number;leaves:number;arrearDays:number;daysWorked?:number}>>>(() => { try { return JSON.parse(localStorage.getItem('rm_sal_month')||'{}'); } catch { return {}; } });
+  const [salaryMonthData, setSalaryMonthData] = useState<Record<string,Record<string,{advance:number;leaves:number;arrearDays:number;daysWorked?:number;newJoiner?:boolean}>>>(() => { try { return JSON.parse(localStorage.getItem('rm_sal_month')||'{}'); } catch { return {}; } });
   const [salaryShowConfig, setSalaryShowConfig] = useState(false);
   const [salaryBaseEditing, setSalaryBaseEditing] = useState(false);
   const [wowDrillSp, setWowDrillSp] = useState<string|null>(null);
@@ -1804,13 +1804,16 @@ export default function RetailMatrix() {
           const cmp = cmpBonus(sp);
           const md = mData[sp]||{advance:0,leaves:0,arrearDays:0};
           const wd = cfg.workingDays||26;
+          const isNJ = md.newJoiner||false;
           // Days: use manually-entered value if set, else auto = workingDays - leaves
           const autodays = Math.max(0, wd - (md.leaves||0));
           const daysWorked = (md.daysWorked != null && md.daysWorked > 0) ? md.daysWorked : autodays;
-          const basePay = base&&wd ? Math.round((base/wd)*daysWorked) : base;
+          // New Joiner: use 30-day calendar month denominator; Regular: use net working days (26)
+          const denominator = isNJ ? 30 : wd;
+          const basePay = base&&denominator ? Math.round((base/denominator)*daysWorked) : base;
           const gross = basePay + incentive + wow + cmp;
           const net = gross - (md.advance||0);
-          return {sp,sale,target,achPct,base,incentive,wow,cmp,advance:md.advance||0,leaves:md.leaves||0,daysWorked,autodays,wd,basePay,gross,net};
+          return {sp,sale,target,achPct,base,incentive,wow,cmp,advance:md.advance||0,leaves:md.leaves||0,daysWorked,autodays,wd,denominator,isNJ,basePay,gross,net};
         });
 
         const inp: React.CSSProperties = {padding:'3px 6px',fontSize:12,borderRadius:4,border:'1px solid var(--border)',background:'var(--bg2)',color:'var(--text1)'};
@@ -1975,15 +1978,25 @@ export default function RetailMatrix() {
                         <td style={tdRS} title={cmpDetail(d.sp)}>{d.cmp?fmtRs(d.cmp):<span style={{color:'var(--text2)'}}>—</span>}</td>
                         {/* Days Worked — editable; default = workingDays - leaves */}
                         <td style={tdRS}>
-                          <input type="number" style={{...inp,width:50,textAlign:'right'}} min={0}
-                            value={mData[d.sp]?.daysWorked ?? d.autodays}
-                            title={`Auto: ${d.wd} working days − ${d.leaves} leaves = ${d.autodays}. Override for arrears.`}
-                            onChange={e=>{
-                              const val = +e.target.value;
-                              const nd={...salaryMonthData,[selMk]:{...mData,[d.sp]:{...(mData[d.sp]||{advance:0,leaves:0,arrearDays:0}),daysWorked:val}}};
-                              saveSalaryMonthData(nd);
-                            }}/>
-                          {d.daysWorked > d.wd && <span style={{fontSize:9,color:'#7c3aed',marginLeft:2}}>+arr</span>}
+                          <div style={{display:'flex',alignItems:'center',gap:3,justifyContent:'flex-end'}}>
+                            <input type="number" style={{...inp,width:50,textAlign:'right'}} min={0}
+                              value={mData[d.sp]?.daysWorked ?? d.autodays}
+                              title={d.isNJ ? `New Joiner: ${d.daysWorked}/30 days. BasePay = Base × ${d.daysWorked}/30` : `Full month = ${d.wd} days. Extra leaves taken: ${d.leaves}. Auto days: ${d.autodays}. Edit to add arrear days.`}
+                              onChange={e=>{
+                                const val = +e.target.value;
+                                const nd={...salaryMonthData,[selMk]:{...mData,[d.sp]:{...(mData[d.sp]||{advance:0,leaves:0,arrearDays:0}),daysWorked:val}}};
+                                saveSalaryMonthData(nd);
+                              }}/>
+                            {d.daysWorked > d.wd && !d.isNJ && <span style={{fontSize:9,color:'#7c3aed'}}>+arr</span>}
+                            <label title="New Joiner — uses Base÷30×days formula" style={{display:'flex',alignItems:'center',gap:1,cursor:'pointer',fontSize:9,color:d.isNJ?'#d97706':'var(--text2)',fontWeight:d.isNJ?700:400}}>
+                              <input type="checkbox" checked={d.isNJ||false} style={{width:11,height:11,cursor:'pointer',accentColor:'#d97706'}}
+                                onChange={e=>{
+                                  const nd={...salaryMonthData,[selMk]:{...mData,[d.sp]:{...(mData[d.sp]||{advance:0,leaves:0,arrearDays:0}),newJoiner:e.target.checked}}};
+                                  saveSalaryMonthData(nd);
+                                }}/>
+                              NJ
+                            </label>
+                          </div>
                         </td>
                         {/* Leaves */}
                         <td style={tdRS}>
@@ -2007,7 +2020,7 @@ export default function RetailMatrix() {
                               saveSalaryMonthData(nd);
                             }}/>
                         </td>
-                        <td style={{...tdRS,fontWeight:600}} title={`Base Pay: ${fmtRs(d.basePay)} (${d.daysWorked}/${d.wd} days)`}>{fmtRs(d.gross)}</td>
+                        <td style={{...tdRS,fontWeight:600}} title={d.isNJ ? `New Joiner: Base Pay = ${fmtRs(d.base)}÷30×${d.daysWorked} = ${fmtRs(d.basePay)}` : `Base Pay = ${fmtRs(d.base)}÷${d.wd}×${d.daysWorked} = ${fmtRs(d.basePay)}`}>{fmtRs(d.gross)}</td>
                         <td style={{...tdRS,fontWeight:700,fontSize:13,color:d.net>0?'var(--green)':'var(--red)',background:'rgba(29,78,216,0.05)'}}>
                           {d.base?fmtRs(d.net):<span style={{color:'var(--text2)',fontWeight:400,fontSize:11}}>Set base salary</span>}
                         </td>
