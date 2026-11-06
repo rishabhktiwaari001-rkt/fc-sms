@@ -181,13 +181,13 @@ export default function RetailMatrix() {
 
   // ── Salary Sheet state ──
   const [salaryBase, setSalaryBase] = useState<Record<string,number>>(() => { try { return JSON.parse(localStorage.getItem('rm_sal_base')||'{}'); } catch { return {}; } });
-  const [salaryConfig, setSalaryConfig] = useState<{wowRates:{[k:string]:number};cmpRates:{[k:string]:number};incentiveSlabs:{minPct:number;rate:number}[];workingDays:number}>(() => {
+  const [salaryConfig, setSalaryConfig] = useState<{wowRates:{[k:string]:number};cmpRates:{[k:string]:number};incentiveSlabs:{minPct:number;rate:number}[];workingDays:number;weekOffs:number;pin:string}>(() => {
     try { return JSON.parse(localStorage.getItem('rm_sal_cfg')||'null') || {
       wowRates:{'5000':50,'10000':100,'20000':200},
       cmpRates:{'8000000':20,'8000002':30,'8000001':50},
       incentiveSlabs:[{minPct:100,rate:0.005},{minPct:110,rate:0.006},{minPct:120,rate:0.007},{minPct:130,rate:0.008},{minPct:140,rate:0.009},{minPct:150,rate:0.01}],
-      workingDays:26
-    }; } catch { return {wowRates:{'5000':50,'10000':100,'20000':200},cmpRates:{'8000000':20,'8000002':30,'8000001':50},incentiveSlabs:[{minPct:100,rate:0.005},{minPct:110,rate:0.006},{minPct:120,rate:0.007},{minPct:130,rate:0.008},{minPct:140,rate:0.009},{minPct:150,rate:0.01}],workingDays:26}; }
+      workingDays:26,weekOffs:4,pin:'1234'
+    }; } catch { return {wowRates:{'5000':50,'10000':100,'20000':200},cmpRates:{'8000000':20,'8000002':30,'8000001':50},incentiveSlabs:[{minPct:100,rate:0.005},{minPct:110,rate:0.006},{minPct:120,rate:0.007},{minPct:130,rate:0.008},{minPct:140,rate:0.009},{minPct:150,rate:0.01}],workingDays:26,weekOffs:4,pin:'1234'}; }
   });
   const [salaryMonthData, setSalaryMonthData] = useState<Record<string,Record<string,{advance:number;leaves:number;arrearDays:number;daysWorked?:number;newJoiner?:boolean}>>>(() => { try { return JSON.parse(localStorage.getItem('rm_sal_month')||'{}'); } catch { return {}; } });
   const [salaryShowConfig, setSalaryShowConfig] = useState(false);
@@ -195,6 +195,9 @@ export default function RetailMatrix() {
   const [wowDrillSp, setWowDrillSp] = useState<string|null>(null);
   const [salaryBaseVals, setSalaryBaseVals] = useState<Record<string,number>>({});
   const [salaryCfgVals, setSalaryCfgVals] = useState<typeof salaryConfig|null>(null);
+  const [salaryUnlocked, setSalaryUnlocked] = useState(false);
+  const [salaryPinInput, setSalaryPinInput] = useState('');
+  const [salaryPinError, setSalaryPinError] = useState(false);
 
   const saveLosRows = (r: LosEntry[]) => { setLosRows(r); try { localStorage.setItem('rm_los',JSON.stringify(r)); } catch {} };
   const saveDsrManual = (d: Record<string,DsrManualEntry>) => { setDsrManual(d); try { localStorage.setItem('rm_dsr',JSON.stringify(d)); } catch {} kvPut('rm_dsr',d); };
@@ -237,7 +240,7 @@ export default function RetailMatrix() {
         try { localStorage.setItem('rm_sal_base', JSON.stringify(d.rm_sal_base)); } catch {}
       }
       if (d.rm_sal_cfg && typeof d.rm_sal_cfg === 'object') {
-        const sc=d.rm_sal_cfg as any; if(sc.weekOffs==null) sc.weekOffs=4;
+        const sc=d.rm_sal_cfg as any; if(sc.weekOffs==null) sc.weekOffs=4; if(!sc.pin) sc.pin='1234';
         setSalaryConfig(sc as typeof salaryConfig);
         try { localStorage.setItem('rm_sal_cfg', JSON.stringify(sc)); } catch {}
       }
@@ -1687,6 +1690,36 @@ export default function RetailMatrix() {
 
       {/* ── Tab 11: Salary Sheet ── */}
       {activeTab === 11 && (() => {
+        // ── Password lock ──
+        const correctPin = salaryConfig.pin || '1234';
+        if (!salaryUnlocked) {
+          return (
+            <div style={{...card,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',minHeight:340,gap:16}}>
+              <div style={{fontSize:52}}>🔒</div>
+              <div style={{fontWeight:700,fontSize:18,color:'var(--text1)'}}>Salary Sheet</div>
+              <div style={{fontSize:13,color:'var(--text2)',marginTop:-8}}>Enter password to access salary data</div>
+              <form style={{display:'flex',flexDirection:'column',alignItems:'center',gap:10,width:'100%',maxWidth:260}}
+                onSubmit={e=>{
+                  e.preventDefault();
+                  if(salaryPinInput===correctPin){ setSalaryUnlocked(true); setSalaryPinError(false); setSalaryPinInput(''); }
+                  else { setSalaryPinError(true); setSalaryPinInput(''); }
+                }}>
+                <input autoFocus type="password" placeholder="Enter password"
+                  value={salaryPinInput}
+                  onChange={e=>{ setSalaryPinInput(e.target.value); setSalaryPinError(false); }}
+                  style={{width:'100%',padding:'10px 14px',fontSize:16,borderRadius:8,
+                    border:`2px solid ${salaryPinError?'#dc2626':'var(--border)'}`,
+                    background:'var(--bg2)',color:'var(--text1)',textAlign:'center',
+                    letterSpacing:4,outline:'none',transition:'border-color 0.2s'}}/>
+                {salaryPinError && <div style={{fontSize:12,color:'#dc2626',fontWeight:600}}>❌ Incorrect password</div>}
+                <button type="submit" className="btn btn-brand" style={{width:'100%',padding:'10px',fontSize:14,fontWeight:600,borderRadius:8}}>
+                  Unlock 🔓
+                </button>
+              </form>
+            </div>
+          );
+        }
+
         const selMk = selMonth === 'All'
           ? (Array.from(new Set(rows.map(r=>r.MonthKey))).sort().slice(-1)[0] || '')
           : selMonth;
@@ -1838,6 +1871,7 @@ export default function RetailMatrix() {
               <button onClick={()=>{setSalaryShowConfig(v=>!v);setSalaryCfgVals(salaryConfig);}} className="btn btn-ghost btn-sm" style={{fontSize:11}}>
                 {salaryShowConfig?'▲ Hide Config':'⚙️ Config'}
               </button>
+              <button onClick={()=>{ setSalaryUnlocked(false); setSalaryPinError(false); }} className="btn btn-ghost btn-sm" style={{fontSize:11,color:'var(--text2)'}} title="Lock salary sheet">🔒 Lock</button>
               <button onClick={()=>{setSalaryBaseEditing(v=>!v);setSalaryBaseVals({...salaryBase});}} className="btn btn-ghost btn-sm" style={{fontSize:11,marginLeft:4}}>
                 {salaryBaseEditing?'✕ Cancel':'✎ Base Salaries'}
               </button>
@@ -1904,6 +1938,12 @@ export default function RetailMatrix() {
                   </div>
                 </div>
                 <div style={{marginTop:12,display:'flex',gap:8}}>
+                  <div style={{borderLeft:'1px solid var(--border)',paddingLeft:16}}>
+                    <div style={{fontSize:11,fontWeight:700,color:'var(--text2)',marginBottom:6}}>CHANGE PASSWORD</div>
+                    <input type="password" placeholder="New password" style={{...inp,width:130}}
+                      value={salaryCfgVals?.pin||''}
+                      onChange={e=>setSalaryCfgVals(v=>v?{...v,pin:e.target.value}:v)}/>
+                  </div>
                   <button className="btn btn-brand btn-sm" onClick={()=>{ if(salaryCfgVals){saveSalaryConfig(salaryCfgVals);setSalaryShowConfig(false);setSalaryCfgVals(null);} }}>Save Config</button>
                   <button className="btn btn-ghost btn-sm" onClick={()=>{setSalaryShowConfig(false);setSalaryCfgVals(null);}}>Cancel</button>
                 </div>
