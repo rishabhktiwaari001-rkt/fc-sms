@@ -189,7 +189,7 @@ export default function RetailMatrix() {
       workingDays:26
     }; } catch { return {wowRates:{'5000':50,'10000':100,'20000':200},cmpRates:{'8000000':20,'8000002':30,'8000001':50},incentiveSlabs:[{minPct:100,rate:0.005},{minPct:110,rate:0.006},{minPct:120,rate:0.007},{minPct:130,rate:0.008},{minPct:140,rate:0.009},{minPct:150,rate:0.01}],workingDays:26}; }
   });
-  const [salaryMonthData, setSalaryMonthData] = useState<Record<string,Record<string,{advance:number;leaves:number;arrearDays:number}>>>(() => { try { return JSON.parse(localStorage.getItem('rm_sal_month')||'{}'); } catch { return {}; } });
+  const [salaryMonthData, setSalaryMonthData] = useState<Record<string,Record<string,{advance:number;leaves:number;arrearDays:number;daysWorked?:number}>>>(() => { try { return JSON.parse(localStorage.getItem('rm_sal_month')||'{}'); } catch { return {}; } });
   const [salaryShowConfig, setSalaryShowConfig] = useState(false);
   const [salaryBaseEditing, setSalaryBaseEditing] = useState(false);
   const [wowDrillSp, setWowDrillSp] = useState<string|null>(null);
@@ -1753,13 +1753,13 @@ export default function RetailMatrix() {
           const cmp = cmpBonus(sp);
           const md = mData[sp]||{advance:0,leaves:0,arrearDays:0};
           const wd = cfg.workingDays||26;
-          const arrearDays = md.arrearDays||0;
-          const leaveDed = base&&wd ? Math.round((base/wd)*md.leaves) : 0;
-          const arrearPay = base&&wd ? Math.round((base/wd)*arrearDays) : 0;
-          const daysWorked = wd - md.leaves + arrearDays;
-          const gross = base + incentive + wow + cmp + arrearPay;
-          const net = gross - leaveDed - (md.advance||0);
-          return {sp,sale,target,achPct,base,incentive,wow,cmp,advance:md.advance||0,leaves:md.leaves||0,leaveDed,arrearDays,arrearPay,daysWorked,wd,gross,net};
+          // Days: use manually-entered value if set, else auto = workingDays - leaves
+          const autodays = Math.max(0, wd - (md.leaves||0));
+          const daysWorked = (md.daysWorked != null && md.daysWorked > 0) ? md.daysWorked : autodays;
+          const basePay = base&&wd ? Math.round((base/wd)*daysWorked) : base;
+          const gross = basePay + incentive + wow + cmp;
+          const net = gross - (md.advance||0);
+          return {sp,sale,target,achPct,base,incentive,wow,cmp,advance:md.advance||0,leaves:md.leaves||0,daysWorked,autodays,wd,basePay,gross,net};
         });
 
         const inp: React.CSSProperties = {padding:'3px 6px',fontSize:12,borderRadius:4,border:'1px solid var(--border)',background:'var(--bg2)',color:'var(--text1)'};
@@ -1784,11 +1784,11 @@ export default function RetailMatrix() {
               {rows.length>0 && (
                 <button className="btn btn-ghost btn-sm" style={{fontSize:11,marginLeft:'auto',color:'var(--green)',border:'1px solid var(--green)'}}
                   onClick={()=>{
-                    const headers=['Staff','Base Salary','Target','Sale','Ach%','Incentive','WOW Bonus','CMP Bonus','Days Worked','Leaves','Leave Deduction','Arrear Days','Arrear Pay','Advance','Gross','NET'];
-                    const dataRows=spData.map(d=>[d.sp,d.base||0,d.target||0,+d.sale.toFixed(2),d.achPct!=null?+d.achPct.toFixed(1):0,d.incentive,d.wow,d.cmp,d.daysWorked,d.leaves,-d.leaveDed,d.arrearDays,d.arrearPay,d.advance,d.gross,d.net]);
-                    const totalRow=['Store Total',spData.reduce((s,d)=>s+d.base,0),'',+spData.reduce((s,d)=>s+d.sale,0).toFixed(2),'',spData.reduce((s,d)=>s+d.incentive,0),spData.reduce((s,d)=>s+d.wow,0),spData.reduce((s,d)=>s+d.cmp,0),'',spData.reduce((s,d)=>s+d.leaves,0),-spData.reduce((s,d)=>s+d.leaveDed,0),spData.reduce((s,d)=>s+d.arrearDays,0),spData.reduce((s,d)=>s+d.arrearPay,0),spData.reduce((s,d)=>s+d.advance,0),spData.reduce((s,d)=>s+d.gross,0),spData.reduce((s,d)=>s+d.net,0)];
+                    const headers=['Staff','Base Sal (Full)','Target','Sale','Ach%','Incentive','WOW Bonus','CMP Bonus','Days Worked','Leaves','Advance','Base Pay (Actual)','Gross','NET'];
+                    const dataRows=spData.map(d=>[d.sp,d.base||0,d.target||0,+d.sale.toFixed(2),d.achPct!=null?+d.achPct.toFixed(1):0,d.incentive,d.wow,d.cmp,d.daysWorked,d.leaves,d.advance,d.basePay,d.gross,d.net]);
+                    const totalRow=['Store Total',spData.reduce((s,d)=>s+d.base,0),'',+spData.reduce((s,d)=>s+d.sale,0).toFixed(2),'',spData.reduce((s,d)=>s+d.incentive,0),spData.reduce((s,d)=>s+d.wow,0),spData.reduce((s,d)=>s+d.cmp,0),'',spData.reduce((s,d)=>s+d.leaves,0),spData.reduce((s,d)=>s+d.advance,0),spData.reduce((s,d)=>s+d.basePay,0),spData.reduce((s,d)=>s+d.gross,0),spData.reduce((s,d)=>s+d.net,0)];
                     const ws=XLSX.utils.aoa_to_sheet([[`Salary Sheet — ${monthLabel(selMk)}`],[],headers,...dataRows,[],totalRow]);
-                    ws['!cols']=[18,13,13,14,8,12,12,10,10,8,14,12,12,12,12,12].map(w=>({wch:w}));
+                    ws['!cols']=[18,13,13,14,8,12,12,10,10,8,12,13,12,12].map(w=>({wch:w}));
                     const wb=XLSX.utils.book_new();
                     XLSX.utils.book_append_sheet(wb,ws,(monthLabel(selMk)||'Sheet1').replace(/[:\/?*[\]]/g,'').substring(0,31));
                     XLSX.writeFile(wb,`SalarySheet_${selMk}.xlsx`);
@@ -1878,7 +1878,7 @@ export default function RetailMatrix() {
                 <table>
                   <thead>
                     <tr>
-                      {['Staff','Base Sal','Target','Sale','Ach%','Incentive','WOW','CMP','Days','Leaves','Leave Ded','Arrear Days','Arrear Pay','Advance','Gross','NET'].map(h=>(
+                      {['Staff','Base Sal','Target','Sale','Ach%','Incentive','WOW','CMP','Days','Leaves','Advance','Gross','NET'].map(h=>(
                         <th key={h} style={h==='Staff'?thS:{...thS,textAlign:'right'}}>{h}</th>
                       ))}
                     </tr>
@@ -1891,11 +1891,8 @@ export default function RetailMatrix() {
                       <td style={{...tdRS,fontSize:10,color:'var(--text2)'}}>auto</td>
                       <td style={{...tdRS,fontSize:10,color:'var(--text2)'}}>C&S only</td>
                       <td style={{...tdRS,fontSize:10,color:'var(--text2)'}}>auto</td>
-                      <td style={{...tdRS,fontSize:10,color:'var(--text2)'}}>auto</td>
+                      <td style={{...tdRS,fontSize:10,color:'var(--text2)'}}>✎ override</td>
                       <td style={{...tdRS,fontSize:10,color:'var(--text2)'}}>✎ monthly</td>
-                      <td style={{...tdRS,fontSize:10,color:'var(--text2)'}}>auto</td>
-                      <td style={{...tdRS,fontSize:10,color:'var(--text2)'}}>✎ arrears</td>
-                      <td style={{...tdRS,fontSize:10,color:'var(--text2)'}}>auto</td>
                       <td style={{...tdRS,fontSize:10,color:'var(--text2)'}}>✎ monthly</td>
                       <td style={{...tdRS,fontSize:10,color:'var(--text2)'}}>auto</td>
                       <td style={{...tdRS,fontSize:10,color:'var(--text2)',fontWeight:700}}>auto</td>
@@ -1925,10 +1922,17 @@ export default function RetailMatrix() {
                           }
                         </td>
                         <td style={tdRS} title={cmpDetail(d.sp)}>{d.cmp?fmtRs(d.cmp):<span style={{color:'var(--text2)'}}>—</span>}</td>
-                        {/* Days Worked */}
-                        <td style={{...tdRS,fontWeight:600,color:d.arrearDays>0?'#7c3aed':'var(--text1)'}}>
-                          {d.daysWorked}
-                          {d.arrearDays>0&&<span style={{fontSize:10,color:'#7c3aed',marginLeft:3}}>+{d.arrearDays}arr</span>}
+                        {/* Days Worked — editable; default = workingDays - leaves */}
+                        <td style={tdRS}>
+                          <input type="number" style={{...inp,width:50,textAlign:'right'}} min={0}
+                            value={mData[d.sp]?.daysWorked ?? d.autodays}
+                            title={`Auto: ${d.wd} working days − ${d.leaves} leaves = ${d.autodays}. Override for arrears.`}
+                            onChange={e=>{
+                              const val = +e.target.value;
+                              const nd={...salaryMonthData,[selMk]:{...mData,[d.sp]:{...(mData[d.sp]||{advance:0,leaves:0,arrearDays:0}),daysWorked:val}}};
+                              saveSalaryMonthData(nd);
+                            }}/>
+                          {d.daysWorked > d.wd && <span style={{fontSize:9,color:'#7c3aed',marginLeft:2}}>+arr</span>}
                         </td>
                         {/* Leaves */}
                         <td style={tdRS}>
@@ -1936,25 +1940,11 @@ export default function RetailMatrix() {
                             value={mData[d.sp]?.leaves||''}
                             placeholder="0"
                             onChange={e=>{
-                              const nd={...salaryMonthData,[selMk]:{...mData,[d.sp]:{...(mData[d.sp]||{advance:0,leaves:0,arrearDays:0}),leaves:+e.target.value}}};
+                              const md2=mData[d.sp]||{advance:0,leaves:0,arrearDays:0};
+                              // If days wasn't manually set, clear it so it re-auto-computes
+                              const nd={...salaryMonthData,[selMk]:{...mData,[d.sp]:{...md2,leaves:+e.target.value,daysWorked:undefined}}};
                               saveSalaryMonthData(nd);
                             }}/>
-                        </td>
-                        <td style={{...tdRS,color:'var(--red)'}}>{d.leaveDed>0?`-${fmtRs(d.leaveDed)}`:'—'}</td>
-                        {/* Arrear Days */}
-                        <td style={tdRS}>
-                          <input type="number" style={{...inp,width:50,textAlign:'right'}} min={0}
-                            value={mData[d.sp]?.arrearDays||''}
-                            placeholder="0"
-                            title="Days from previous month(s) whose salary wasn't paid"
-                            onChange={e=>{
-                              const nd={...salaryMonthData,[selMk]:{...mData,[d.sp]:{...(mData[d.sp]||{advance:0,leaves:0,arrearDays:0}),arrearDays:+e.target.value}}};
-                              saveSalaryMonthData(nd);
-                            }}/>
-                        </td>
-                        {/* Arrear Pay */}
-                        <td style={{...tdRS,color:d.arrearPay>0?'#7c3aed':'var(--text2)'}}>
-                          {d.arrearPay>0?`+${fmtRs(d.arrearPay)}`:'—'}
                         </td>
                         {/* Advance */}
                         <td style={tdRS}>
@@ -1966,7 +1956,7 @@ export default function RetailMatrix() {
                               saveSalaryMonthData(nd);
                             }}/>
                         </td>
-                        <td style={{...tdRS,fontWeight:600}}>{fmtRs(d.gross)}</td>
+                        <td style={{...tdRS,fontWeight:600}} title={`Base Pay: ${fmtRs(d.basePay)} (${d.daysWorked}/${d.wd} days)`}>{fmtRs(d.gross)}</td>
                         <td style={{...tdRS,fontWeight:700,fontSize:13,color:d.net>0?'var(--green)':'var(--red)',background:'rgba(29,78,216,0.05)'}}>
                           {d.base?fmtRs(d.net):<span style={{color:'var(--text2)',fontWeight:400,fontSize:11}}>Set base salary</span>}
                         </td>
@@ -1985,9 +1975,6 @@ export default function RetailMatrix() {
                       <td style={tdRS}>{fmtRs(spData.reduce((s,d)=>s+d.cmp,0))}</td>
                       <td style={tdRS}></td>
                       <td style={tdRS}>{spData.reduce((s,d)=>s+d.leaves,0)}</td>
-                      <td style={{...tdRS,color:'var(--red)'}}>{spData.some(d=>d.leaveDed)?`-${fmtRs(spData.reduce((s,d)=>s+d.leaveDed,0))}`:'—'}</td>
-                      <td style={tdRS}>{spData.some(d=>d.arrearDays)?spData.reduce((s,d)=>s+d.arrearDays,0):''}</td>
-                      <td style={{...tdRS,color:'#7c3aed'}}>{spData.some(d=>d.arrearPay)?`+${fmtRs(spData.reduce((s,d)=>s+d.arrearPay,0))}`:'—'}</td>
                       <td style={tdRS}>{spData.some(d=>d.advance)?fmtRs(spData.reduce((s,d)=>s+d.advance,0)):'—'}</td>
                       <td style={tdRS}>{fmtRs(spData.reduce((s,d)=>s+d.gross,0))}</td>
                       <td style={{...tdRS,background:'rgba(29,78,216,0.08)'}}>{fmtRs(spData.reduce((s,d)=>s+d.net,0))}</td>
