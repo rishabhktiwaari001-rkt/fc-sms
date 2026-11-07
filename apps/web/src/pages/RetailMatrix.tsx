@@ -474,8 +474,13 @@ export default function RetailMatrix() {
           {/* ── Tab 0: Rankings ── */}
           {activeTab === 0 && (
             <div style={card}>
-              <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 12 }}>
-                🏆 Staff Rankings — {activeLabel}
+              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:12, gap:8, flexWrap:'wrap' }}>
+                <div style={{ fontWeight: 700, fontSize: 15 }}>🏆 Staff Rankings — {activeLabel}</div>
+                <button className="btn btn-ghost btn-sm" style={{fontSize:11}} onClick={()=>{
+                  const rows=staffStats.map(s=>({'Rank':s.rank,'Name':s.name,'Total GSV (₹)':Math.round(s.gsv),'Qty':s.qty,'Bills':s.bills,'AVPT (₹)':Math.round(s.avpt),'AUPT':+s.aupt.toFixed(2),'≤2 Qty Bills':s.singleBills,'≤2 Qty %':+s.singlePct.toFixed(1)}));
+                  const ws=XLSX.utils.json_to_sheet(rows);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Rankings');
+                  XLSX.writeFile(wb,`Rankings_${activeLabel.replace(/[^a-z0-9]/gi,'_')}.xlsx`);
+                }}>⬇ Download Excel</button>
               </div>
               <div className="tbl-wrap">
                 <table>
@@ -537,8 +542,14 @@ export default function RetailMatrix() {
                   <input type="checkbox" checked={transpose} onChange={e => setTranspose(e.target.checked)} />
                   🔄 Transpose View
                 </label>
-                <div style={{ marginLeft: 'auto', fontSize: 13, fontWeight: 700, color: '#1d4ed8' }}>
-                  {activeLabel} · Total: {fmtRs(catStats.total)}
+                <div style={{ marginLeft: 'auto', display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#1d4ed8' }}>{activeLabel} · Total: {fmtRs(catStats.total)}</div>
+                  <button className="btn btn-ghost btn-sm" style={{fontSize:11}} onClick={()=>{
+                    const rows=catStats.rows.map(r=>({'SalesPerson':r.name,'Sales (₹)':Math.round(r.sales),'Contrib %':+r.contrib.toFixed(1),'Qty':r.qty,'Bills':r.bills}));
+                    rows.push({'SalesPerson':'TOTAL','Sales (₹)':Math.round(catStats.total),'Contrib %':100,'Qty':catStats.rows.reduce((s,r)=>s+r.qty,0),'Bills':catStats.rows.reduce((s,r)=>s+r.bills,0)});
+                    const ws=XLSX.utils.json_to_sheet(rows);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Category');
+                    XLSX.writeFile(wb,`Category_${selCat}_${activeLabel.replace(/[^a-z0-9]/gi,'_')}.xlsx`);
+                  }}>⬇ Download Excel</button>
                 </div>
               </div>
               <div className="tbl-wrap">
@@ -581,7 +592,14 @@ export default function RetailMatrix() {
           {/* ── Tab 2: Memberships ── */}
           {activeTab === 2 && (
             <div style={card}>
-              <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 12 }}>💳 Membership Hub — {activeLabel}</div>
+              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:12, gap:8 }}>
+                <div style={{ fontWeight: 700, fontSize: 15 }}>💳 Membership Hub — {activeLabel}</div>
+                {memRows.length>0&&<button className="btn btn-ghost btn-sm" style={{fontSize:11}} onClick={()=>{
+                  const rows=memHub.dates.map(d=>{const row:Record<string,string|number>={'Date':d};memHub.tierList.forEach(t=>{row[t]=memHub.map[d]?.[t]||0;});return row;});
+                  const ws=XLSX.utils.json_to_sheet(rows);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Memberships');
+                  XLSX.writeFile(wb,`Memberships_${activeLabel.replace(/[^a-z0-9]/gi,'_')}.xlsx`);
+                }}>⬇ Download Excel</button>}
+              </div>
               {memRows.length === 0 ? (
                 <div style={{ padding: 24, textAlign: 'center', color: 'var(--text2)', fontSize: 13 }}>No memberships found in data.</div>
               ) : (
@@ -606,7 +624,14 @@ export default function RetailMatrix() {
           {activeTab === 3 && (
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
               <div style={card}>
-                <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 10 }}>📅 Day-wise Sales — {activeLabel}</div>
+                <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:10 }}>
+                  <div style={{ fontWeight: 700, fontSize: 14 }}>📅 Day-wise Sales — {activeLabel}</div>
+                  <button className="btn btn-ghost btn-sm" style={{fontSize:11}} onClick={()=>{
+                    const rows=dayWise.map(d=>({'Date':fmtDate(d.date),'Day':d.day,'GSV (₹)':Math.round(d.gsv)}));
+                    const ws=XLSX.utils.json_to_sheet(rows);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'DayWise');
+                    XLSX.writeFile(wb,`DayWise_${activeLabel.replace(/[^a-z0-9]/gi,'_')}.xlsx`);
+                  }}>⬇</button>
+                </div>
                 <div className="tbl-wrap">
                   <table>
                     <thead><tr><th style={th}>Date</th><th style={th}>Day</th><th style={th}>GSV</th></tr></thead>
@@ -638,7 +663,15 @@ export default function RetailMatrix() {
           {/* ── Tab 4: Less than 2 Qty Bills ── */}
           {activeTab === 4 && (
             <div style={card}>
-              <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>⚠️ Less than 2 Qty Bills — {activeLabel}</div>
+              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:4, gap:8 }}>
+                <div style={{ fontWeight: 700, fontSize: 15 }}>⚠️ Less than 2 Qty Bills — {activeLabel}</div>
+                <button className="btn btn-ghost btn-sm" style={{fontSize:11}} onClick={()=>{
+                  const sorted=[...staffStats].sort((a,b)=>b.singlePct-a.singlePct);
+                  const rows=sorted.map(s=>({'Rank':s.rank,'SalesPerson':s.name,'Total Bills':s.bills,'≤2 Qty Bills':s.singleBills,'≤2 Qty %':+s.singlePct.toFixed(1)}));
+                  const ws=XLSX.utils.json_to_sheet(rows);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'LT2QtyBills');
+                  XLSX.writeFile(wb,`LT2Bills_${activeLabel.replace(/[^a-z0-9]/gi,'_')}.xlsx`);
+                }}>⬇ Download Excel</button>
+              </div>
               <div style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 12 }}>Staff with high ≤2 quantity bills need upselling improvement</div>
               <div className="tbl-wrap">
                 <table>
@@ -689,7 +722,24 @@ export default function RetailMatrix() {
             const breakdownLabel = selMonth === 'All' ? 'All Months' : monthLabel(selMonth);
             return (
             <div style={card}>
-              <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>📆 Monthly Breakdown — All Staff × {breakdownLabel}</div>
+              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:4, gap:8 }}>
+                <div style={{ fontWeight: 700, fontSize: 15 }}>📆 Monthly Breakdown — All Staff × {breakdownLabel}</div>
+                <button className="btn btn-ghost btn-sm" style={{fontSize:11}} onClick={()=>{
+                  const dataRows:Record<string,string|number>[]=[];
+                  monthlyBreakdown.staffList.forEach(name=>{
+                    const row:Record<string,string|number>={'Staff':name};
+                    visibleMonths.forEach(mk=>{
+                      const cell=monthlyBreakdown.grid[name]?.[mk];
+                      row[`${monthLabel(mk)} GSV`]=cell?Math.round(cell.gsv):0;
+                      row[`${monthLabel(mk)} Bills`]=cell?cell.bills.size:0;
+                      row[`${monthLabel(mk)} AVPT`]=cell&&cell.bills.size?Math.round(cell.gsv/cell.bills.size):0;
+                    });
+                    dataRows.push(row);
+                  });
+                  const ws=XLSX.utils.json_to_sheet(dataRows);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'MonthlyBreakdown');
+                  XLSX.writeFile(wb,`MonthlyBreakdown_${breakdownLabel.replace(/[^a-z0-9]/gi,'_')}.xlsx`);
+                }}>⬇ Download Excel</button>
+              </div>
               <div style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 14 }}>Click a month card to drill into that month · click again to reset</div>
 
               {/* Month totals row */}
@@ -1113,7 +1163,14 @@ export default function RetailMatrix() {
         const inp: React.CSSProperties={width:90,padding:'3px 6px',fontSize:12,borderRadius:4,border:'1px solid var(--border)',background:'var(--bg2)',color:'var(--text1)'};
         return (
           <div style={card}>
-            <div style={{fontWeight:700,fontSize:15,marginBottom:4}}>📋 Category Wise Sale — {!rows.length?'Upload ASR first':activeLabel}</div>
+            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:4,gap:8}}>
+              <div style={{fontWeight:700,fontSize:15}}>📋 Category Wise Sale — {!rows.length?'Upload ASR first':activeLabel}</div>
+              {rows.length>0&&<button className="btn btn-ghost btn-sm" style={{fontSize:11}} onClick={()=>{
+                const exRows=catData.map(({cat,saleTy,qtyTy,man,saleGap,qtyGap,l2l,contrib,achPct})=>({'Category':cat,'Sale TY (₹)':Math.round(saleTy),'Qty TY':qtyTy,'Sale LY (₹)':man.saleLy||0,'Qty LY':man.qtyLy||0,'Sale Gap (₹)':man.saleLy?Math.round(saleGap):''as any,'Qty Gap':man.qtyLy?qtyGap:''as any,'L2L %':l2l!=null?+l2l.toFixed(1):''as any,'Contrib %':+contrib.toFixed(1),'Target':man.target||0,'Ach %':achPct!=null?+achPct.toFixed(0):''as any}));
+                const ws=XLSX.utils.json_to_sheet(exRows);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'CatWise');
+                XLSX.writeFile(wb,`CatWise_${activeLabel.replace(/[^a-z0-9]/gi,'_')}.xlsx`);
+              }}>⬇ Download Excel</button>}
+            </div>
             {!rows.length?(
               <div style={{padding:32,textAlign:'center',color:'var(--text2)',fontSize:13}}>Upload Article Sale Report CSV to view category data.</div>
             ):(
@@ -1213,7 +1270,19 @@ export default function RetailMatrix() {
           <div style={card}>
             {/* ── Header row ── */}
             <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:8,marginBottom:10}}>
-              <div style={{fontWeight:700,fontSize:15}}>👥 Staff Wise Performance{staffViewMode==='single'?` — ${!rows.length?'Upload ASR first':swLabel}`:staffViewMode==='multi'?' — Multi-Month Matrix':' — Staff Drill Down'}</div>
+              <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',flexShrink:0}}>
+                <div style={{fontWeight:700,fontSize:15}}>👥 Staff Wise Performance{staffViewMode==='single'?` — ${!rows.length?'Upload ASR first':swLabel}`:staffViewMode==='multi'?' — Multi-Month Matrix':' — Staff Drill Down'}</div>
+                {rows.length>0&&staffViewMode==='single'&&<button className="btn btn-ghost btn-sm" style={{fontSize:11}} onClick={()=>{
+                  const exRows=stData.map(s=>({'Name':s.name,'GSV (₹)':Math.round(s.gsv),'Bills':s.bills,'Qty':s.qty,'AVPT (₹)':Math.round(s.avpt),'AUPT':+s.aupt.toFixed(2),'Target':s.man.target||0,'Ach %':s.achPct!=null?+s.achPct.toFixed(0):''as any,'Backlog (₹)':s.backlog!=null?Math.round(s.backlog):''as any,'YoY %':s.goly!=null?+s.goly.toFixed(1):''as any}));
+                  const ws=XLSX.utils.json_to_sheet(exRows);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'StaffWise');
+                  XLSX.writeFile(wb,`StaffWise_${swLabel.replace(/[^a-z0-9]/gi,'_')}.xlsx`);
+                }}>⬇ Excel</button>}
+                {rows.length>0&&staffViewMode==='multi'&&<button className="btn btn-ghost btn-sm" style={{fontSize:11}} onClick={()=>{
+                  const exRows=allStaff.map(sp=>{const row:Record<string,string|number>={'Staff':sp};staffMonths.forEach(mk=>{const c=grid[sp]?.[mk];row[`${monthLabel(mk)} GSV`]=c?Math.round(c.gsv):0;row[`${monthLabel(mk)} Bills`]=c?c.bills.size:0;});return row;});
+                  const ws=XLSX.utils.json_to_sheet(exRows);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'MultiMonth');
+                  XLSX.writeFile(wb,'StaffWise_AllMonths.xlsx');
+                }}>⬇ Excel</button>}
+              </div>
               {rows.length>0&&(
                 <div style={{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center'}}>
                   <button onClick={()=>setStaffViewMode('single')} className={`btn btn-sm ${staffViewMode==='single'?'btn-brand':'btn-ghost'}`} style={{fontSize:12}}>📋 Single Month</button>
@@ -1474,7 +1543,20 @@ export default function RetailMatrix() {
         <div>
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
             <div style={{fontWeight:700,fontSize:15}}>😞 Loss of Sale Tracker <span style={{fontSize:12,color:'var(--text2)',fontWeight:400}}>({losRows.length} entries)</span></div>
-            <button onClick={()=>setShowLosForm(true)} className="btn btn-brand btn-sm">+ Add Entry</button>
+            <div style={{display:'flex',gap:8}}>
+              {losRows.length>0&&<button className="btn btn-ghost btn-sm" style={{fontSize:11}} onClick={()=>{
+                let exp=[...losRows].reverse();
+                if(losFilterDateFrom) exp=exp.filter(r=>r.date>=losFilterDateFrom);
+                if(losFilterDateTo) exp=exp.filter(r=>r.date<=losFilterDateTo);
+                if(losFilterCat) exp=exp.filter(r=>r.category===losFilterCat);
+                if(losFilterSub) exp=exp.filter(r=>r.subCategory===losFilterSub);
+                if(losFilterAge) exp=exp.filter(r=>r.ageGroup===losFilterAge);
+                const exRows=exp.map(r=>({'Date':r.date,'Customer':r.customerName||'','Contact':r.contactNo||'','Category':r.category||'','Sub Category':r.subCategory||'','Type':r.typeLevel||'','Age Group':r.ageGroup||'','Gender':r.gender||'','Price Range':r.priceRange||'','Requirement':r.requirement||'','Remark':r.remark||'','Status':r.status||'','Staff':r.staffName||'','Follow Up':r.followUpDate||''}));
+                const ws=XLSX.utils.json_to_sheet(exRows);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'LossOfSale');
+                XLSX.writeFile(wb,'LossOfSale.xlsx');
+              }}>⬇ Download Excel</button>}
+              <button onClick={()=>setShowLosForm(true)} className="btn btn-brand btn-sm">+ Add Entry</button>
+            </div>
           </div>
           {showLosForm && (() => {
             const losCats = Array.from(new Set(salesRows.map(r=>r.Category).filter(Boolean))).sort() as string[];
@@ -1652,6 +1734,12 @@ export default function RetailMatrix() {
           <div>
             <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:16,flexWrap:'wrap'}}>
               <div style={{fontWeight:700,fontSize:15}}>🎯 CMP Tracker</div>
+              <button className="btn btn-ghost btn-sm" style={{fontSize:11}} onClick={()=>{
+                const exRows=days.map(({day,dayName,key})=>({'Day':day,'Day Name':dayName,'Date':key,'CMP':cmpData[key]??''}));
+                exRows.push({'Day':''as any,'Day Name':'TOTAL','Date':'','CMP':total});
+                const ws=XLSX.utils.json_to_sheet(exRows);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'CMP');
+                XLSX.writeFile(wb,`CMP_${cmpMonth}.xlsx`);
+              }}>⬇ Download Excel</button>
               <input type="month" value={cmpMonth} onChange={e=>setCmpMonth(e.target.value)}
                 style={{padding:'5px 10px',fontSize:13,borderRadius:6,border:'1px solid var(--border)',background:'var(--bg1)',color:'var(--text1)'}}/>
               <div style={{fontSize:13,color:'var(--text2)'}}>Total: <strong style={{color:'var(--text1)'}}>{total}</strong> CMP · {filled}/{daysInMonth} days filled · Avg: {filled?(total/filled).toFixed(1):'—'}/day</div>
