@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { api } from '../lib/api';
+import * as XLSX from 'xlsx';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface CashbookEntry {
@@ -182,6 +183,70 @@ export default function Cashbook() {
   });
 
   const card = { background:'var(--bg1)', border:'1px solid var(--border)', borderRadius:10, padding:16, marginBottom:16 };
+
+  // ── Excel download ──────────────────────────────────────────────────────────
+  const downloadExcel = () => {
+    if (!history.length) return;
+    const sortedAsc = [...history].sort((a, b) => a.date.localeCompare(b.date));
+    const rows = sortedAsc.map((e, idx) => {
+      const cb_ = cbTotal(e), sys_ = sysTotal(e);
+      const closing_ = Number(e.openingCash||0) + Number(e.cbCash||0) - Number(e.depositAmount||0);
+      const prevClosing = idx > 0
+        ? Number(sortedAsc[idx-1].openingCash||0) + Number(sortedAsc[idx-1].cbCash||0) - Number(sortedAsc[idx-1].depositAmount||0)
+        : null;
+      const variance = prevClosing !== null ? Number(e.openingCash||0) - prevClosing : null;
+      return {
+        'Date': e.date,
+        'Opening Cash': Number(e.openingCash||0),
+        'Opening Variance': variance ?? '',
+        'CB Cash': Number(e.cbCash||0),
+        'CB Credit Card': Number(e.cbCreditCard||0),
+        'CB UPI': Number(e.cbUpi||0),
+        'CB Manual Bill': Number(e.cbManualBill||0),
+        'CB Credit Note': Number(e.cbCreditNote||0),
+        'CB Total': cb_,
+        'Sys Cash': Number(e.sysCash||0),
+        'Sys Credit Card': Number(e.sysCreditCard||0),
+        'Sys Pinelab': Number(e.sysPinelab||0),
+        'Sys UPI': Number(e.sysUpi||0),
+        'Sys Credit Note': Number(e.sysCreditNote||0),
+        'Sys Total': sys_,
+        'Diff (CB-Sys)': cb_ - sys_,
+        'Deposit Amount': Number(e.depositAmount||0),
+        'Deposit Bank': e.depositBank || '',
+        'Deposit Date': e.depositDate || '',
+        'Cash in Hand': closing_,
+        'Remark': e.remark || '',
+      };
+    });
+    rows.push({
+      'Date': 'MONTH TOTAL',
+      'Opening Cash': '' as any,
+      'Opening Variance': '' as any,
+      'CB Cash': history.reduce((s,e)=>s+Number(e.cbCash||0),0),
+      'CB Credit Card': history.reduce((s,e)=>s+Number(e.cbCreditCard||0),0),
+      'CB UPI': history.reduce((s,e)=>s+Number(e.cbUpi||0),0),
+      'CB Manual Bill': history.reduce((s,e)=>s+Number(e.cbManualBill||0),0),
+      'CB Credit Note': history.reduce((s,e)=>s+Number(e.cbCreditNote||0),0),
+      'CB Total': history.reduce((s,e)=>s+cbTotal(e),0),
+      'Sys Cash': history.reduce((s,e)=>s+Number(e.sysCash||0),0),
+      'Sys Credit Card': history.reduce((s,e)=>s+Number(e.sysCreditCard||0),0),
+      'Sys Pinelab': history.reduce((s,e)=>s+Number(e.sysPinelab||0),0),
+      'Sys UPI': history.reduce((s,e)=>s+Number(e.sysUpi||0),0),
+      'Sys Credit Note': history.reduce((s,e)=>s+Number(e.sysCreditNote||0),0),
+      'Sys Total': history.reduce((s,e)=>s+sysTotal(e),0),
+      'Diff (CB-Sys)': history.reduce((s,e)=>s+cbTotal(e)-sysTotal(e),0),
+      'Deposit Amount': history.reduce((s,e)=>s+Number(e.depositAmount||0),0),
+      'Deposit Bank': '',
+      'Deposit Date': '',
+      'Cash in Hand': '' as any,
+      'Remark': '',
+    });
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Cashbook');
+    XLSX.writeFile(wb, `Cashbook_${historyMonth}.xlsx`);
+  };
 
   return (
     <div style={{ maxWidth: 900, margin: '0 auto' }}>
@@ -484,6 +549,11 @@ export default function Cashbook() {
                 onChange={e => setHistoryMonth(e.target.value)}
                 style={{ padding:'5px 10px', borderRadius:6, border:'1px solid var(--border)', background:'var(--bg1)', color:'var(--text1)', fontSize:13 }}
               />
+              {history.length > 0 && (
+                <button className="btn btn-sm btn-brand" style={{ fontSize:12 }} onClick={downloadExcel}>
+                  ⬇️ Download Excel
+                </button>
+              )}
             </div>
           </div>
 
